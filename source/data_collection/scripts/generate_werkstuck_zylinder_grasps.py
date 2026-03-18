@@ -59,37 +59,42 @@ def make_pose(x_axis, y_axis, z_axis, translation):
 grasp_poses = []
 widths = []
 
-# ── Side grasps — fingers vertical, approach horizontal with 10° downward tilt ─
+# ── Side grasps — fingers horizontal, approach with 10° downward tilt ────────
 #
-# Approach direction (Z in grasp DB): horizontal + 10° downward tilt so that
-# after robot_gripper_2_grasp_gripper the robot Y-axis has a positive Z-component
-# → passes disable_upside_down for right arm (grasp_poses[:,2,1] > 0).
+# Approach (Z in grasp DB): horizontal + 10° downward tilt.
+# After robot_gripper_2_grasp_gripper: Robot Y = -Z_grasp = mostly horizontal
+# with slight upward Z component = sin(10°) > 0 → passes disable_upside_down ✓
 #
-# Finger opening (Y in grasp DB): [0,0,1] (vertical) → one finger on each
-# side of the cylinder in the horizontal plane, avoids table collision.
+# Finger opening (Y in grasp DB): horizontal, perpendicular to approach.
+# → Both fingers at the same height, one on each side of the cylinder.
+# → No finger goes below the table.
 #
-# Robot Y (finger opening after transform) = -Z_grasp = -approach
-# → mostly horizontal, small positive Z from the tilt → passes upside-down check.
+# Translation: [0, 0, 0] — USD is "Aligned.usd" so origin is already at centroid.
 
 n_angles = 36
-tilt = np.radians(10.0)   # 10° downward tilt ensures disable_upside_down passes
+tilt = np.radians(10.0)
 
 for i in range(n_angles):
     theta = i * 2.0 * np.pi / n_angles
+
+    # Approach: horizontal direction + 10° downward tilt
     z_axis = np.array([np.cos(theta) * np.cos(tilt),
                        np.sin(theta) * np.cos(tilt),
                        -np.sin(tilt)])
     z_axis /= np.linalg.norm(z_axis)
 
-    y_axis = np.array([0.0, 0.0, 1.0])   # vertical finger opening
+    # Finger opening: horizontal, perpendicular to approach direction
+    y_axis = np.array([-np.sin(theta), np.cos(theta), 0.0])
+
     x_axis = np.cross(y_axis, z_axis)
     x_axis /= np.linalg.norm(x_axis)
 
+    # USD origin is at centroid (Aligned.usd), so no Z offset needed
     t = np.array([0.0, 0.0, 0.0])
     grasp_poses.append(make_pose(x_axis, y_axis, z_axis, t))
     widths.append(GRASP_WIDTH)
 
-print(f"Side grasps (vertical fingers, 10° downward tilt): {n_angles}")
+print(f"Side grasps (horizontal fingers, 10° tilt, centroid height): {n_angles}")
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 grasp_poses = np.array(grasp_poses, dtype=np.float64)
