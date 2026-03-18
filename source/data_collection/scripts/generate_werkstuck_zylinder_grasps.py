@@ -59,57 +59,37 @@ def make_pose(x_axis, y_axis, z_axis, translation):
 grasp_poses = []
 widths = []
 
-# ── 1. Top-down grasps ────────────────────────────────────────────────────────
-# Approach from above: Z = [0, 0, -1]
-# Finger opening (Y) rotates around the cylinder Z-axis every 10°
-# Grasp center at cylinder centroid.
+# ── Side grasps — fingers vertical, approach horizontal with 10° downward tilt ─
 #
-# After robot_gripper_2_grasp_gripper transform, Y_robot = -Z_grasp = [0,0,1]
-# → Z-component of robot Y-axis = 1 > 0  → passes disable_upside_down ✓
+# Approach direction (Z in grasp DB): horizontal + 10° downward tilt so that
+# after robot_gripper_2_grasp_gripper the robot Y-axis has a positive Z-component
+# → passes disable_upside_down for right arm (grasp_poses[:,2,1] > 0).
+#
+# Finger opening (Y in grasp DB): [0,0,1] (vertical) → one finger on each
+# side of the cylinder in the horizontal plane, avoids table collision.
+#
+# Robot Y (finger opening after transform) = -Z_grasp = -approach
+# → mostly horizontal, small positive Z from the tilt → passes upside-down check.
 
 n_angles = 36
-for i in range(n_angles):
-    theta = i * 2.0 * np.pi / n_angles
-    y_axis = np.array([np.cos(theta), np.sin(theta), 0.0])   # finger opening
-    z_axis = np.array([0.0, 0.0, -1.0])                      # approach downward
-    x_axis = np.cross(y_axis, z_axis)                         # closing direction
-
-    # Grasp center at cylinder centroid (object frame origin)
-    t = np.array([0.0, 0.0, 0.0])
-    grasp_poses.append(make_pose(x_axis, y_axis, z_axis, t))
-    widths.append(GRASP_WIDTH)
-
-print(f"Top-down grasps: {n_angles}")
-
-# ── 2. Side grasps — fingers vertical ────────────────────────────────────────
-# Approach horizontally from every 10° direction.
-# Finger opening (Y) = [0, 0, 1] (vertical) → one finger above, one below
-# the cylinder's equator, consistent with its 2 cm height.
-#
-# After robot_gripper_2_grasp_gripper: Y_robot = -Z_grasp = -horizontal
-# Z-component of Y_robot ≈ 0 → borderline for disable_upside_down.
-# We tilt Z slightly downward (-5°) so the approach has a small downward
-# component, guaranteeing it passes the right-arm upside-down filter.
-
-tilt = np.radians(5.0)   # 5° downward tilt on the approach
+tilt = np.radians(10.0)   # 10° downward tilt ensures disable_upside_down passes
 
 for i in range(n_angles):
     theta = i * 2.0 * np.pi / n_angles
-    # Approach: horizontal direction + slight downward tilt
     z_axis = np.array([np.cos(theta) * np.cos(tilt),
                        np.sin(theta) * np.cos(tilt),
                        -np.sin(tilt)])
     z_axis /= np.linalg.norm(z_axis)
 
-    y_axis = np.array([0.0, 0.0, 1.0])   # finger opening = vertical
+    y_axis = np.array([0.0, 0.0, 1.0])   # vertical finger opening
     x_axis = np.cross(y_axis, z_axis)
+    x_axis /= np.linalg.norm(x_axis)
 
-    # Grasp center at cylinder centroid
     t = np.array([0.0, 0.0, 0.0])
     grasp_poses.append(make_pose(x_axis, y_axis, z_axis, t))
     widths.append(GRASP_WIDTH)
 
-print(f"Side grasps (vertical fingers, 5° tilt): {n_angles}")
+print(f"Side grasps (vertical fingers, 10° downward tilt): {n_angles}")
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 grasp_poses = np.array(grasp_poses, dtype=np.float64)
