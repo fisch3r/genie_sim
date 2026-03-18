@@ -390,6 +390,12 @@
                         "target_id": "gripper",
                         "value": 0.04
                     }
+                },
+                {
+                    "checker_name": "object_attached",
+                    "params": {
+                        "object_id": "geniesim_2025_target_building_block"
+                    }
                 }
             ],
             "extra_params": {
