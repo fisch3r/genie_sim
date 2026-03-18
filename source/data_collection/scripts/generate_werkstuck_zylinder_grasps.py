@@ -38,9 +38,11 @@ HEIGHT = 0.02    # 0.02 m tall
 GRASP_WIDTH = RADIUS * 2 + 0.004  # gripper opening: diameter + 4 mm clearance
 
 OUTPUT_PATH = os.path.join(
-    os.path.expanduser("~"),
-    "genie-sim/genie_sim/assets/objects/benchmark/werkstuck"
-    "/benchmark_werkstuck_zylinder_000/grasp_pose/grasp_pose.pkl",
+    os.environ.get("SIM_ASSETS", os.path.expanduser("~/genie-sim/genie_sim/assets")),
+    "interaction",
+    "benchmark_werkstuck_zylinder_000",
+    "grasp_pose",
+    "grasp_pose.pkl",
 )
 
 
