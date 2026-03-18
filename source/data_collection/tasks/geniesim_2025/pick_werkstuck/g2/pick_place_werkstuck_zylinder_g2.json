@@ -393,12 +393,12 @@
                 }
             ],
             "extra_params": {
-                "arm": "auto",
+                "arm": "right",
                 "disable_upside_down": true,
                 "flip_grasp": true,
                 "grasp_offset": 0.0,
-                "pick_up_distance": -0.15,
-                "pre_grasp_distance": 0.0
+                "pick_up_distance": 0.15,
+                "pre_grasp_distance": 0.05
             },
             "passive": {
                 "object_id": "geniesim_2025_target_building_block",
