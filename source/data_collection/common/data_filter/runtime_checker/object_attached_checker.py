@@ -7,36 +7,50 @@ from common.data_filter.runtime_checker.checker_base import SyncChecker
 from common.data_filter.runtime_checker.checker_factory import register_checker
 
 
-@register_checker("object_attached")
-class ObjectAttachedChecker(SyncChecker):
+@register_checker("gripper_not_fully_closed")
+class GripperNotFullyClosedChecker(SyncChecker):
     """
-    Checks whether the target object is physically attached to the gripper
-    (i.e. a FixedJoint was created between gripper and object mesh).
-
-    This is more reliable than distance_to_target for verifying a successful
-    grasp: it passes only when the object is actually between the fingers,
-    not when the gripper merely touches or pushes the object.
+    Verifies that the gripper control joint has NOT reached its fully-closed
+    position after the grasp attempt.  When an object is properly held between
+    the fingers the joint is blocked by the object and stays above a threshold.
+    When the gripper closes on air (object beside/outside the fingers) it
+    reaches near-zero — this checker returns False in that case.
 
     Parameters
     ----------
-    object_id : str
-        Semantic object ID as used in the task JSON, e.g.
-        "geniesim_2025_target_building_block".  The checker looks for any
-        prim path in attach_states that contains this string.
+    arm : str
+        "right" or "left"
+    min_position : float
+        Minimum joint value that counts as "something is between the fingers".
+        Default 0.15 (gripper open=0.95, closed=0.0).
     """
 
-    def __init__(self, object_id: str, **kwargs):
-        super().__init__(name="object_attached", **kwargs)
-        self.object_id = object_id
+    def __init__(self, arm: str = "right", min_position: float = 0.15, **kwargs):
+        super().__init__(name="gripper_not_fully_closed", **kwargs)
+        self.arm = arm
+        self.min_position = min_position
 
     def check_impl(self) -> bool:
-        attach_states: dict = self.command_controller.attach_states
-        if not attach_states:
-            logger.debug(f"object_attached: attach_states is empty — {self.object_id} not attached")
+        cc = self.command_controller
+        # Prim path like "/G2/joints/idx81_gripper_r_outer_joint1"
+        joint_prim = cc.gripper_controll_joint.get(self.arm)
+        if joint_prim is None:
+            logger.warning(f"gripper_not_fully_closed: no control joint for arm={self.arm}")
             return False
-        for prim_path in attach_states:
-            if self.object_id in prim_path:
-                logger.info(f"object_attached: {self.object_id} attached via {prim_path}")
-                return True
-        logger.debug(f"object_attached: {self.object_id} not found in attach_states={list(attach_states.keys())}")
-        return False
+
+        joint_name = joint_prim.split("/")[-1]
+        dof_names = list(cc.dof_names)
+        if joint_name not in dof_names:
+            logger.warning(f"gripper_not_fully_closed: joint '{joint_name}' not in dof_names")
+            return False
+
+        idx = dof_names.index(joint_name)
+        articulation = cc._initialize_articulation()
+        joint_positions = articulation.get_joint_positions()
+        current_pos = float(joint_positions[idx])
+
+        logger.info(
+            f"gripper_not_fully_closed: arm={self.arm}, joint={joint_name}, "
+            f"pos={current_pos:.4f}, min={self.min_position}"
+        )
+        return current_pos >= self.min_position

@@ -392,9 +392,10 @@
                     }
                 },
                 {
-                    "checker_name": "object_attached",
+                    "checker_name": "gripper_not_fully_closed",
                     "params": {
-                        "object_id": "geniesim_2025_target_building_block"
+                        "arm": "right",
+                        "min_position": 0.15
                     }
                 }
             ],
