@@ -103,6 +103,13 @@ class CommandController:
         self.rendering_step = rendering_step
         self.process = []
         self.extract_process = []
+        # Direct recording — kein ROS/DDS
+        self._direct_recording = False
+        self._direct_frames = []
+        self._direct_annotators = {}
+        self._direct_render_count = 0
+        self._direct_physics_count = 0
+        self._direct_render_interval = 2  # 60Hz physics / 30fps render
         self.target_point = None
         self.debug_view = {}
         self.timeline = omni.timeline.get_timeline_interface()
@@ -436,8 +443,15 @@ class CommandController:
                     curobo_motion.on_physics_step(self.motion_run_ratio, additional_action)
 
             self.on_command_step()
+            # Direct recording: Joint + Camera ohne ROS/DDS
+            if self._direct_recording:
+                self._direct_physics_count += 1
+                if self._direct_physics_count >= self._direct_render_interval:
+                    self._direct_physics_count = 0
+                    self._capture_direct_frame()
+
             with self._timing_context("on_physics_step:publish_ros"):
-                if self.publish_ros:
+                if self.publish_ros and not self._direct_recording:
                     for ros_publisher_node in self.ros_publishers:
                         ros_publisher_node.tick(self.ui_builder.my_world.current_time)
                     return
@@ -751,6 +765,40 @@ class CommandController:
                 prim_name = "hand_left"
         return prim_name
 
+    def _capture_direct_frame(self):
+        """Direktes Frame-Capture: Joint States + Camera-Frames ohne ROS/DDS."""
+        import cv2 as _cv2
+        current_time = self.ui_builder.my_world.current_time
+
+        # Joint States direkt vom Articulation lesen
+        articulation = self._initialize_articulation()
+        joint_positions = articulation.get_joint_positions()
+        joint_velocities = articulation.get_joint_velocities()
+        joint_names = list(articulation.dof_names)
+
+        self._direct_frames.append({
+            "timestamp": float(current_time),
+            "joint_positions": [float(x) for x in joint_positions],
+            "joint_velocities": [float(x) for x in joint_velocities],
+            "joint_names": joint_names,
+        })
+
+        # Camera Frames als JPEG speichern
+        frame_dir = os.path.join(
+            self.path_to_save, "camera_direct", str(self._direct_render_count)
+        )
+        os.makedirs(frame_dir, exist_ok=True)
+        for prim_name, (ann, rp) in self._direct_annotators.items():
+            try:
+                data = ann.get_data()
+                if data is not None and data.size > 0:
+                    img_bgr = data[:, :, 2::-1].copy()  # RGBA → BGR
+                    _cv2.imwrite(os.path.join(frame_dir, f"{prim_name}_color.jpg"), img_bgr)
+            except Exception as e:
+                logger.warning(f"Camera capture failed {prim_name}: {e}")
+
+        self._direct_render_count += 1
+
     def handle_get_observation(self):
         """Handle Command 11: GetObservation / StartRecording / StopRecording"""
         if self.data["startRecording"]:
@@ -801,158 +849,46 @@ class CommandController:
                         )
                     tf_target.append(prim_path)
 
-                if self.publish_ros:
-                    ros_cmd_distro = os.getenv("ROS_CMD_DISTRO", "humble")
-                    exclude_args = "--exclude-regex" if ros_cmd_distro != "humble" else "--exclude"
-                    # Minimales ROS bag - nur Joint States (kein Kamera-Stream)
-                    ros_cmd_distro = os.getenv("ROS_CMD_DISTRO", "humble")
-                    command_str = f"""
-                        unset PYTHONPATH
-                        unset LD_LIBRARY_PATH
-                        source /opt/ros/{ros_cmd_distro}/setup.bash
-                        ros2 bag record -o {recording_path} /joint_states /articulation_action /tf
-                        """
-                    logger.info("Minimal ROS bag: joint_states only")
-                    process = subprocess.Popen(
-                        command_str,
-                        shell=True,
-                        executable="/bin/bash",
-                        preexec_fn=os.setsid,
-                    )
-                    self.process.append(process)
-                    frequency = (int)(
-                        1 / (self.ui_builder.my_world.get_rendering_dt() * self.data["fps"])
-                    )  # this is actually step_size in the condition of 60 fps
-                    logger.info(
-                        f"frequency: {frequency}, fps: {self.data['fps']}, rendering_dt: {self.ui_builder.my_world.get_rendering_dt()}"
-                    )
-                    additional_cam_parameters = self.data.get("additional_cam_parameters", "")
-                    if additional_cam_parameters:
-                        additional_cam_parameters = json.loads(additional_cam_parameters)
-                    noised_probability = additional_cam_parameters.get("noised_probability", 0.2)
-                    logger.info(f"noised_probability{noised_probability}")
-                    noise_parameters = additional_cam_parameters.get("noise_parameters", {})
-                    noised_camera_indices = additional_cam_parameters.get(
-                        "noised_camera_indices",
-                        np.arange(len(self.data["camera_prim_list"])),
-                    )
-                    noised_camera_prim_list = [self.data["camera_prim_list"][i] for i in noised_camera_indices]
-                    logger.info(f"noised_camera_indices{noised_camera_indices}")
-                    logger.info(f"noised_camera_prim_list{noised_camera_prim_list}")
-                    self.sensor_base._init_sensor(self.loop_count)
-                    for prim in self.object_asset_dict.keys():
-                        if prim not in tf_target:
-                            tf_target.append(prim)
-                    for prim in self.end_effector_prim_path.values():
-                        if prim not in tf_target:
-                            tf_target.append(prim)
-                    for prim in self.end_effector_center_prim_path.values():
-                        if prim not in tf_target:
-                            tf_target.append(prim)
-                    tf_target.append(self.robot_prim_path)
-                    if self.arm_base_prim_path not in tf_target:
-                        tf_target.append(self.arm_base_prim_path)
-                    delta_time = 1 / (2 * self.rendering_step)
-                    logger.info(f"tf_target{tf_target}")
-                    self.sensor_base.publish_tf(
-                        robot_prim=self.robot_prim_path,
-                        targets=tf_target,
-                        approx_freq=2,
-                        delta_time=delta_time,
-                    )
+                # Direct recording — kein ROS bag, kein DDS
+                self._direct_recording = True
+                self._direct_frames = []
+                self._direct_render_count = 0
+                self._direct_physics_count = 0
+                self.fps = self.data["fps"]
+                fps = self.fps or 30
+                physics_rate = int(1 / self.ui_builder.my_world.get_physics_dt()) if self.ui_builder.my_world.get_physics_dt() else 60
+                self._direct_render_interval = max(1, int(physics_rate / fps))
+                logger.info(f"Direct recording: physics={physics_rate}Hz, fps={fps}, interval={self._direct_render_interval}")
 
-                    for prim in self.articulat_objects.keys():
-                        self.sensor_base.publish_joint(
-                            robot_prim=prim,
-                            approx_freq=2,
-                            delta_time=delta_time,
-                            topic_name=prim,
-                        )
-                    self.fps = self.data["fps"]
-                    self.graph_path = [
-                        "/World/RobotTFActionGraph",
-                        "/World/RobotJointActionGraph",
-                        "/ClockActionGraph",
-                    ]
+                # Camera Annotators einrichten (direkt, ohne ROS/DDS)
+                import omni.replicator.core as _rep
+                self._direct_annotators = {}
+                for _prim_path in self.data["camera_prim_list"]:
+                    _prim_name = self.get_camera_prim_name(_prim_path)
+                    _w = self.cameras.get(_prim_path, [640, 480])[0]
+                    _h = self.cameras.get(_prim_path, [640, 480])[1]
+                    try:
+                        _rp = _rep.create.render_product(_prim_path, (_w, _h))
+                        _ann = _rep.AnnotatorRegistry.get_annotator("rgb")
+                        _ann.attach([_rp])
+                        self._direct_annotators[_prim_name] = (_ann, _rp)
+                        logger.info(f"Direct annotator: {_prim_name} {_w}x{_h}")
+                    except Exception as _e:
+                        logger.warning(f"Annotator setup failed {_prim_name}: {_e}")
 
-                    if not self.camera_graph_path:
-                        for camera in self.data["camera_prim_list"]:
-
-                            camera_param = {
-                                "path": camera,
-                                "frequency": frequency,
-                                "resolution": {
-                                    "width": self.cameras[camera][0],
-                                    "height": self.cameras[camera][1],
-                                },
-                                "publish": [
-                                    "rgb:/" + camera.split("/")[-1] + "_rgb",
-                                    "depth:/" + camera.split("/")[-1],
-                                ],
-                            }
-
-                            if "Fisheye" in camera or "Top" in camera:
-                                camera_param["publish"] = ["rgb:/" + camera.split("/")[-1] + "_rgb"]
-                            elif self.data["render_semantic"]:
-                                camera_param["publish"] = [
-                                    "rgb:/" + camera.split("/")[-1] + "_rgb",
-                                    "depth:/" + camera.split("/")[-1],
-                                    "semantic:/" + camera.split("/")[-1] + "_semantic",
-                                ]
-                            else:
-                                camera_param["publish"] = [
-                                    "rgb:/" + camera.split("/")[-1] + "_rgb",
-                                    "depth:/" + camera.split("/")[-1],
-                                ]
-                            if camera in noised_camera_prim_list:
-                                camera_param["noised"] = np.random.uniform() < noised_probability
-                                camera_param["noise_parameters"] = noise_parameters
-                            else:
-                                camera_param["noised"] = False
-                            if "head_right_Camera" in camera or "head_left_Camera" in camera:
-                                camera_param["publish"].remove("depth:/" + camera.split("/")[-1])
-                            self.camera_info_list[self.get_camera_prim_name(camera)]["noised"] = camera_param["noised"]
-                            camera_graph, ros_nodes = self.sensor_base._init_camera(camera_param)
-                            self.ros_publishers += ros_nodes
-                        self.camera_graph_path.append(self.data["camera_prim_list"])
-                        # joint action
-                        articulation_action_node = self.sensor_base.publish_articulation_action(
-                            robot=self.robot,
-                            step_size=1,
-                        )
-                        self.ros_publishers.append(articulation_action_node)
-
-                    # image_transport republish deaktiviert
-                    logger.info("image_transport republish disabled")
-                    if not self.ros_node_initialized:
-                        self.server_ros_node = ServerNode(robot_name=self.robot_name)
-                        self.ros_node_initialized = True
-                    self.data_to_send = "Start"
-                else:
-                    raise ValueError("publish ros is not enabled")
+                self.data_to_send = "Start"
+                logger.info("Direct recording started — ROS/DDS bypassed")
         elif self.data["stopRecording"]:
             with self._timing_context("stop_recording"):
-                if self.publish_ros:
-                    for process in self.process:
-                        try:
-                            if process.poll() is None:  # Check if process is still running
-                                os.killpg(os.getpgid(process.pid), signal.SIGINT)
-                                logger.info(f"Sent SIGINT to process group {process.pid}")
-                        except ProcessLookupError:
-                            logger.info(f"Process {process.pid} has exited")
-                        except Exception as e:
-                            logger.info(f"Failed to send signal to process {process.pid}: {e}")
-                    for process in self.process:
-                        try:
-                            if process.poll() is None:
-                                os.killpg(os.getpgid(process.pid), signal.SIGINT)
-                                process.wait(timeout=5)  # Wait for rosbag to exit completely
-                        except Exception as e:
-                            logger.info(f"Failed to force terminate process {process.pid}: {e}")
-                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                    self.ui_builder.remove_graph(self.graph_path)
-
-                    self.process = []
+                self._direct_recording = False
+                for _prim_name, (_ann, _rp) in self._direct_annotators.items():
+                    try:
+                        _ann.detach([_rp])
+                    except Exception as _e:
+                        logger.warning(f"Annotator detach failed {_prim_name}: {_e}")
+                self._direct_annotators = {}
+                self.process = []
+                logger.info(f"Direct recording stopped — {self._direct_render_count} frames captured")
                 self.data_to_send = "Stopped"
         else:
             raise ValueError("Invalid command: GetObservation is not supported")
@@ -1085,24 +1021,32 @@ class CommandController:
                         log_file.close()
                         logger.info("Extract process waiting timeout 120s, kill it")
 
-                log_file = open(self.path_to_save + "/extract.log", "w")
+                # Direct frames als JSON speichern
+                frames_path = self.path_to_save + "/direct_frames.json"
+                with open(frames_path, "w") as _f:
+                    json.dump(self._direct_frames, _f)
+                logger.info(f"Direct frames saved: {len(self._direct_frames)} frames → {frames_path}")
+
+                # LeRobot Dataset Verzeichnis (2 Ebenen über recording_data/)
+                lerobot_dir = os.path.join(
+                    os.path.dirname(os.path.dirname(self.path_to_save)),
+                    "lerobot_dataset"
+                )
+                log_file = open(self.path_to_save + "/lerobot_convert.log", "w")
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 extract_sub_process = subprocess.Popen(
                     [
                         sys.executable,
-                        f"{current_dir}/recording/extract_and_convert_data.py",
-                        "--path_to_save",
-                        self.path_to_save,
-                        "--task_info_path",
-                        task_info_path,
-                        "--metric_config_path",
-                        metric_config_path,
+                        f"{current_dir}/recording/direct_to_lerobot.py",
+                        "--recording_path", self.path_to_save,
+                        "--task_info_path", task_info_path,
+                        "--output_dir", lerobot_dir,
                     ],
                     stdout=log_file,
                     stderr=subprocess.STDOUT,
                     preexec_fn=os.setsid,
                 )
-                logger.info("Extract process started")
+                logger.info(f"LeRobot conversion started → {lerobot_dir}")
                 self.extract_process.append((extract_sub_process, log_file))
             else:
                 # remove folder if exist
