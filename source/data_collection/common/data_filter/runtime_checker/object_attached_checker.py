@@ -26,7 +26,7 @@ class ObjectAttachedChecker(SyncChecker):
     """
 
     def __init__(self, object_id: str, **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(name="object_attached", **kwargs)
         self.object_id = object_id
 
     def check_impl(self) -> bool:
