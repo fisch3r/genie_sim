@@ -78,7 +78,7 @@ def find_cameras(cam_dir: Path) -> list:
 def encode_video(cam_dir: Path, cam_name: str, out_path: Path, fps: int = 30) -> bool:
     """Enkodiert JPEG-Sequenz → MP4 (H.264) mit ffmpeg."""
     frames = sorted(
-        cam_dir.glob(f"*/{cam_name}_color.jpg"),
+        cam_dir.glob(f"*/{cam_name}.jpg"),
         key=lambda p: int(p.parent.name),
     )
     if not frames:
