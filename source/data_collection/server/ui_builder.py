@@ -227,6 +227,7 @@ class UIBuilder:
             actions, success = self.kinematics_solver[key]._articulation_kinematics_solver.compute_inverse_kinematics(
                 target_position, target_orientation
             )
+
         else:
             self.kinematics_solver._kinematics_solver.set_robot_base_pose(
                 robot_base_translation, robot_base_orientation
@@ -427,6 +428,7 @@ class UIBuilder:
             if self.arm_type == "dual" and not is_right:
                 link_name = "left_attached_object"
             result = curoboMotion.attach_obj(prim_path_list, link_name, position, rotation)
+            logger.info(f"attach_obj called with prim_path_list={prim_path_list}, link_name={link_name}, position={position}, result={result}")
             curoboMotion.view_debug_world()
         return result
 

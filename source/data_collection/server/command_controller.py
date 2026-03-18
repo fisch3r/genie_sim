@@ -230,6 +230,17 @@ class CommandController:
             else:
                 add_reference_to_stage(self.robot_usd_path, "/World")
             add_reference_to_stage(self.scene_usd_path, "/World")
+            # Add static ground plane at table height
+            from isaacsim.core.api.objects import GroundPlane
+            ground = GroundPlane(
+                prim_path="/World/GroundPlane",
+                z_position=0.75,
+                size=10.0,
+                color=None
+            )
+            import sys
+            sys.stderr.write("Ground plane added at z=0.9\n")
+            sys.stderr.flush()
             self.usd_objects["robot"] = XFormPrim(
                 prim_path=robot.robot_prim_path,
                 position=init_position,
@@ -499,7 +510,7 @@ class CommandController:
         return state_info
 
     def restore_state(self, state_info):
-        MAX_PLAYBACK_WAITED_FRAME_NUM = 10
+        MAX_PLAYBACK_WAITED_FRAME_NUM = 300
         self.playback_waited_frame_num += 1
         if not state_info:
             return False
@@ -793,13 +804,15 @@ class CommandController:
                 if self.publish_ros:
                     ros_cmd_distro = os.getenv("ROS_CMD_DISTRO", "humble")
                     exclude_args = "--exclude-regex" if ros_cmd_distro != "humble" else "--exclude"
+                    # Minimales ROS bag - nur Joint States (kein Kamera-Stream)
+                    ros_cmd_distro = os.getenv("ROS_CMD_DISTRO", "humble")
                     command_str = f"""
                         unset PYTHONPATH
                         unset LD_LIBRARY_PATH
                         source /opt/ros/{ros_cmd_distro}/setup.bash
-                        ros2 bag record -o {recording_path} {exclude_args} '.*_rgb(?!_)' -a
+                        ros2 bag record -o {recording_path} /joint_states /articulation_action /tf
                         """
-                    logger.info("publish_ros command: " + command_str)
+                    logger.info("Minimal ROS bag: joint_states only")
                     process = subprocess.Popen(
                         command_str,
                         shell=True,
@@ -909,26 +922,8 @@ class CommandController:
                         )
                         self.ros_publishers.append(articulation_action_node)
 
-                    for camera in self.data["camera_prim_list"]:
-                        logger.info(f"republish camera{camera}")
-                        topic_name = "/" + camera.split("/")[-1] + "_rgb"
-                        compressed_name = topic_name + "_compressed"
-                        ros_cmd_distro = os.getenv("ROS_CMD_DISTRO", "humble")
-                        extra_args = "--remap _out_transport:=compressed" if ros_cmd_distro != "humble" else ""
-                        command_str = f"""
-                        unset PYTHONPATH
-                        unset LD_LIBRARY_PATH
-                        source /opt/ros/{ros_cmd_distro}/setup.bash
-                        ros2 run image_transport republish raw compressed {extra_args} --ros-args --remap /in:={topic_name} --remap /out:={compressed_name}
-                        """
-                        logger.info(command_str)
-                        subpro = subprocess.Popen(
-                            command_str,
-                            shell=True,
-                            executable="/bin/bash",
-                            preexec_fn=os.setsid,
-                        )
-                        self.process.append(subpro)
+                    # image_transport republish deaktiviert
+                    logger.info("image_transport republish disabled")
                     if not self.ros_node_initialized:
                         self.server_ros_node = ServerNode(robot_name=self.robot_name)
                         self.ros_node_initialized = True
@@ -981,7 +976,31 @@ class CommandController:
                     prim = get_prim_at_path(path)
                     if prim.IsA(UsdGeom.Mesh):
                         items.append(path)
-        self.ui_builder.attach_objs(items, is_right)
+        logger.info(f"handle_attach_obj: items={items}, is_right={is_right}")
+        result = self.ui_builder.attach_objs(items, is_right)
+        logger.info(f"handle_attach_obj: attach result={result}")
+        
+        # Physikalisches Attachment via FixedJoint
+        stage = omni.usd.get_context().get_stage()
+        if stage and obj_prims:
+            for obj_prim_path in obj_prims:
+                # Greifer-Zentrum als Body0
+                ee_prim_path = self.end_effector_center_prim_path["left"]
+                if is_right:
+                    ee_prim_path = self.end_effector_center_prim_path["right"]
+                # Root-Prim des Objekts als Body1
+                root_prim_path = obj_prim_path
+                joint_path = f"{root_prim_path}/attached_joint"
+                # Alten Joint entfernen falls vorhanden
+                old_prim = stage.GetPrimAtPath(joint_path)
+                if old_prim.IsValid():
+                    stage.RemovePrim(joint_path)
+                joint_prim = UsdPhysics.FixedJoint.Define(stage, joint_path)
+                joint_prim.CreateBody0Rel().SetTargets([Sdf.Path(ee_prim_path)])
+                joint_prim.CreateBody1Rel().SetTargets([Sdf.Path(root_prim_path)])
+                self.attached_joints[root_prim_path] = joint_path
+                logger.info(f"FixedJoint created: {joint_path} ({ee_prim_path} -> {root_prim_path})")
+        
         attach_states = {item: is_right for item in items}
         self.attach_states.update(attach_states)
         self.data_to_send = "attaching"
@@ -989,6 +1008,15 @@ class CommandController:
     def handle_detach_obj(self):
         """Handle Command 14: DetachObj"""
         self.ui_builder.detach_objs()
+        # FixedJoints entfernen
+        stage = omni.usd.get_context().get_stage()
+        if stage:
+            for obj_prim_path, joint_path in self.attached_joints.items():
+                prim = stage.GetPrimAtPath(joint_path)
+                if prim.IsValid():
+                    stage.RemovePrim(joint_path)
+                    logger.info(f"FixedJoint removed: {joint_path}")
+        self.attached_joints = {}
         self.attach_states = {}
         self.data_to_send = "detaching"
 
@@ -1745,6 +1773,7 @@ class CommandController:
         else:
             target_object = XFormPrim(prim_path=object_prim_path)
             position, rotation = target_object.get_world_pose()
+
         for value in self.articulat_objects.values():
             value.initialize()
         return position, rotation

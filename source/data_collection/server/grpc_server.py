@@ -535,7 +535,7 @@ class ObservationService(sim_observation_service_pb2_grpc.SimObservationService)
     def reset(self, req, rsp):
         rsp = sim_observation_service_pb2.ResetRsp()
         Reset = req.reset
-        rsp.msg = self.server_function.blocking_start_server(data={"reset", Reset}, Command=Command.RESET)
+        rsp.msg = self.server_function.blocking_start_server(data={"reset": Reset}, Command=Command.RESET)
         return rsp
 
     def attach_obj(self, req, rsp):
@@ -552,7 +552,7 @@ class ObservationService(sim_observation_service_pb2_grpc.SimObservationService)
     def detach_obj(self, req, rsp):
         rsp = sim_observation_service_pb2.DetachRsp()
         detach = req.detach
-        rsp.msg = self.server_function.blocking_start_server(data={"detach", detach}, Command=Command.DETACH_OBJ)
+        rsp.msg = self.server_function.blocking_start_server(data={"detach": detach}, Command=Command.DETACH_OBJ)
         return rsp
 
     def remove_objs_from_obstacle(self, req, rsp):

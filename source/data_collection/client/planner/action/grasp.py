@@ -512,7 +512,7 @@ class PickStage(Stage):
                 logger.info("No pre_grasp_pose found")
                 return None
             # sub-stage-0   moveTo pregrasp pose
-            path_constraint = [0.1, 0.1, 0.1, 0.1, 0.1, 0.0]
+            path_constraint = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
             offset_and_constraint_in_goal_frame = True
             # first to pregrasp pose
             action_sequence.add_action(
@@ -531,8 +531,8 @@ class PickStage(Stage):
                     transform_world=np.eye(4),
                     motion_type="AvoidObs",
                     extra_params={
-                        "path_constraint": path_constraint,
-                        "offset_and_constraint_in_goal_frame": offset_and_constraint_in_goal_frame,
+                        "path_constraint": [],
+                        "offset_and_constraint_in_goal_frame": True,
                     },
                 )
             )
@@ -540,13 +540,11 @@ class PickStage(Stage):
             if pick_up_distance != 0.0:
                 gripper_action = "close"
                 goal_offset = [0, 0, pick_up_distance, 1, 0, 0, 0]
-                path_constraint = [0.1, 0.1, 0.1, 0.1, 0.1, 0.0]
+                path_constraint = []
                 if pick_up_direction == "x":
                     goal_offset = [pick_up_distance, 0, 0, 1, 0, 0, 0]
-                    path_constraint = [0.1, 0.1, 0.1, 0, 0.1, 0.1]
                 elif pick_up_direction == "y":
                     goal_offset = [0, pick_up_distance, 0, 1, 0, 0, 0]
-                    path_constraint = [0.1, 0.1, 0.1, 0.1, 0, 0.1]
                 offset_and_constraint_in_goal_frame = False
                 from_current_pose = True
                 action_sequence.add_action(
