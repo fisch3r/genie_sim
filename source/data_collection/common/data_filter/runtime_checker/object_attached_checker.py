@@ -49,8 +49,9 @@ class GripperNotFullyClosedChecker(SyncChecker):
         joint_positions = articulation.get_joint_positions()
         current_pos = float(joint_positions[idx])
 
-        logger.info(
+        result = current_pos >= self.min_position
+        logger.warning(
             f"gripper_not_fully_closed: arm={self.arm}, joint={joint_name}, "
-            f"pos={current_pos:.4f}, min={self.min_position}"
+            f"pos={current_pos:.4f}, min={self.min_position} → {'PASS' if result else 'FAIL'}"
         )
-        return current_pos >= self.min_position
+        return result
