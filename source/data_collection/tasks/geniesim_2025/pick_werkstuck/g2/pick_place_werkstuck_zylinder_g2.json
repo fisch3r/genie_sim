@@ -405,7 +405,7 @@
                 "flip_grasp": true,
                 "grasp_offset": 0.0,
                 "pick_up_distance": 0.15,
-                "pre_grasp_distance": 0.05,
+                "pre_grasp_distance": 0.08,
                 "filter_grasp_pose": {
                     "gripper_up_axis": "y",
                     "targrt_direction": "+z",
