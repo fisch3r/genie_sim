@@ -396,7 +396,7 @@
                 "arm": "right",
                 "disable_upside_down": true,
                 "flip_grasp": true,
-                "grasp_offset": 0.0,
+                "grasp_offset": 0.03,
                 "pick_up_distance": 0.15,
                 "pre_grasp_distance": 0.05
             },
