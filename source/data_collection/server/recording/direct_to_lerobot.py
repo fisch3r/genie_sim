@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # ── Joint Config ─────────────────────────────────────────────────────────────
 
 def load_joint_config(robot_name: str = "G2") -> dict:
-    config_path = Path(__file__).parents[3] / "config" / "robot_cfg" / "robot_joint_names.json"
+    config_path = Path(__file__).parents[2] / "config" / "robot_cfg" / "robot_joint_names.json"
     with open(config_path) as f:
         cfg = json.load(f)
     key = "G2" if "G2" in robot_name else "G1"
