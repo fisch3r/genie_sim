@@ -16,20 +16,28 @@ Grasp pose convention (GraspNet / AgiBot):
   - Column 3:     translation (gripper center between fingers)
 
 robot_gripper_2_grasp_gripper for omnipicker:
-  [[0, 0, 1], [-1, 0, 0], [0, -1, 0]]
+  [[0, 0, 1], [-1, 0, 0], [0, -1, 0]]   (right-multiplied onto R_grasp)
 
-After that transform the disable_upside_down check (right arm) keeps poses
-where the world Y-axis of the pose has Z-component > 0.
+After that transform the pre-grasp is computed from col 2 of the TRANSFORMED pose:
+  pre_grasp = grasp - col2_world * pre_grasp_distance
 
-For top-down grasps:
-  Z_grasp = [0, 0, -1]  →  Robot_Y = -Z_grasp = [0, 0, 1]  →  Z-component = 1 > 0  ✓
+  col2_after_R2G = X_grasp_original
 
-Top-down approach:
-  - Gripper descends from above, fingers close horizontally around the cylinder.
-  - No table collision risk regardless of cylinder height.
-  - Translation Z = HEIGHT/2: gripper center targets the upper half of the cylinder,
-    ensuring the finger tips are well above the table surface.
-  - 36 approach angles around the vertical axis.
+  → For pre_grasp to be ABOVE the grasp:  X_grasp must point DOWNWARD (Z < 0).
+
+  disable_upside_down check (right arm): col1_world[2] > 0
+  col1_after_R2G = -Z_grasp_original[2]
+
+  → For the filter to pass:  Z_grasp[2] < 0  (downward approach component).
+
+Side-grasp design with downward tilt satisfies both:
+  - X_grasp_z = -cos(tilt) << 0   → pre_grasp is above the grasp     ✓
+  - Z_grasp_z = -sin(tilt) < 0    → disable_upside_down passes        ✓
+
+Translation z = HEIGHT / 2:
+  Gripper center targets the UPPER HALF of the cylinder (not the centroid).
+  If the cylinder centroid sits at z=0.75 (table surface), the gripper center
+  ends up at z=0.76 — 1 cm above the table — avoiding table collisions.
 """
 
 import os
@@ -63,43 +71,52 @@ def make_pose(x_axis, y_axis, z_axis, translation):
 grasp_poses = []
 widths = []
 
-# ── Top-down grasps — approach from above, fingers close horizontally ─────────
+# ── Side grasps — fingers horizontal, approach with downward tilt ─────────────
 #
-# Approach (Z in grasp DB): [0, 0, -1] — straight down.
-# After robot_gripper_2_grasp_gripper:
-#   Robot_Y = -Z_grasp = [0, 0, 1]  →  Z-component = 1 > 0  → passes disable_upside_down ✓
+# This design is compatible with the codebase's pre_grasp computation which
+# uses col2 of the R_r2g-transformed pose (= X_grasp_original) as the retreat
+# direction.
 #
-# Finger opening (Y in grasp DB): horizontal [cos(θ), sin(θ), 0].
-# → Both fingers at the same height, closing from the sides of the cylinder.
-# → Gripper body is above the cylinder — no table collision possible.
+# Z_grasp: approach direction, mostly horizontal with `tilt` downward component.
+#   After R_r2g: col1[2] = -Z_grasp[2] = sin(tilt) > 0 → passes disable_upside_down ✓
 #
-# Translation Z = HEIGHT/2 = 0.01 m:
-#   Gripper center targets the upper half of the cylinder (1 cm above centroid).
-#   Combined with pre_grasp_distance the approach starts well above the object.
-#   Even if the cylinder centroid sits at table height (z=0.75), the gripper
-#   center ends up at z=0.76 — 1 cm clear of the table.
+# X_grasp: finger closing direction, mostly DOWNWARD.
+#   After R_r2g: col2 = X_grasp, col2[2] = -cos(tilt) < 0
+#   → pre_grasp = grasp + cos(tilt) * pre_grasp_distance upward ✓
+#
+# Y_grasp: finger opening direction, horizontal.
+#   → Both fingers at the same height, one on each side of the cylinder.
+#
+# Translation z = HEIGHT / 2 = 0.01 m:
+#   Gripper center targets the UPPER half of the cylinder.
+#   Even if the cylinder centroid is at z=0.75 (table surface), the gripper
+#   center ends up at z=0.76 — 1 cm clearance above the table.
 
 n_angles = 36
-Z_OFFSET = HEIGHT / 2  # 0.01 m — target upper half to stay clear of table
-
-z_axis = np.array([0.0, 0.0, -1.0])  # approach straight down
+tilt = np.radians(10.0)
 
 for i in range(n_angles):
     theta = i * 2.0 * np.pi / n_angles
 
-    # Finger opening: horizontal, rotates around vertical axis
-    y_axis = np.array([np.cos(theta), np.sin(theta), 0.0])
+    # Approach: horizontal + `tilt` downward
+    z_axis = np.array([np.cos(theta) * np.cos(tilt),
+                       np.sin(theta) * np.cos(tilt),
+                       -np.sin(tilt)])
 
-    # X = Y × Z  (right-handed)
+    # Finger opening: horizontal, perpendicular to approach
+    y_axis = np.array([-np.sin(theta), np.cos(theta), 0.0])
+
+    # Finger closing: X = Y × Z  (right-handed, mostly downward)
     x_axis = np.cross(y_axis, z_axis)
     x_axis /= np.linalg.norm(x_axis)
 
-    # Gripper center at upper half of cylinder — clear of table
-    t = np.array([0.0, 0.0, Z_OFFSET])
+    # Gripper center at the UPPER HALF of the cylinder — avoids table
+    t = np.array([0.0, 0.0, HEIGHT / 2])
     grasp_poses.append(make_pose(x_axis, y_axis, z_axis, t))
     widths.append(GRASP_WIDTH)
 
-print(f"Top-down grasps (horizontal fingers, approach=[0,0,-1], z_offset={Z_OFFSET:.3f}m): {n_angles}")
+print(f"Side grasps (horizontal fingers, {np.degrees(tilt):.0f}° tilt, "
+      f"z_offset={HEIGHT/2:.3f}m = upper half): {n_angles}")
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 grasp_poses = np.array(grasp_poses, dtype=np.float64)
