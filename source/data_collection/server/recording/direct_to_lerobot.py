@@ -15,6 +15,7 @@ Output:
   {output_dir}/meta/{info,tasks,episodes}.jsonl + stats.json
 """
 import argparse
+import fcntl
 import json
 import logging
 import os
@@ -174,8 +175,7 @@ def append_meta(info: dict, meta_dir: Path, tasks_path: Path, episodes_path: Pat
             f.write(json.dumps({"task_index": 0, "task": task_name}) + "\n")
     with open(episodes_path, "a") as f:
         f.write(json.dumps(ep_meta) + "\n")
-    with open(meta_dir / "info.json", "w") as f:
-        json.dump(info, f, indent=2)
+    # info.json wird bereits in Phase 1 von convert() atomar geschrieben — kein erneuter Write
 
 
 def update_stats(output_dir: Path, states: np.ndarray, actions: np.ndarray):
@@ -239,52 +239,66 @@ def convert(recording_path: str, task_info_path: str, output_dir: str, task_name
     cameras = find_cameras(cam_dir) if cam_dir.exists() else []
     logger.info(f"Kameras: {cameras}")
 
-    # Meta initialisieren / laden
-    info, ep_idx, start_frame_idx, meta_dir, tasks_path, episodes_path = \
-        load_or_init_meta(output_dir, cameras, fps)
-
     # State / Action aufbauen (in Sim: commanded ≈ actual)
     states = np.stack([build_state_vector(f, config) for f in direct_frames])
     actions = states.copy()
 
-    # Parquet schreiben
-    data_dir = output_dir / "data" / "chunk-000"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    rows = []
-    for fi, (state, action) in enumerate(zip(states, actions)):
-        timestamp = float(fi) / fps
-        row = {
-            "observation.state": state.tolist(),
-            "action": action.tolist(),
-            "timestamp": timestamp,
-            "frame_index": fi,
-            "episode_index": ep_idx,
-            "index": start_frame_idx + fi,
-            "task_index": 0,
-        }
-        for cam in cameras:
-            row[f"observation.images.{cam}"] = {
-                "path": f"videos/chunk-000/observation.images.{cam}/episode_{ep_idx:06d}.mp4",
+    # Lock-Datei für atomare Meta-Updates (verhindert Race Condition bei parallelen Konvertierungen)
+    lock_path = output_dir / "meta" / ".convert.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # --- Phase 1: Episode-Index reservieren + Parquet schreiben (unter Lock) ---
+    with open(lock_path, "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+
+        info, ep_idx, start_frame_idx, meta_dir, tasks_path, episodes_path = \
+            load_or_init_meta(output_dir, cameras, fps)
+
+        data_dir = output_dir / "data" / "chunk-000"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        rows = []
+        for fi, (state, action) in enumerate(zip(states, actions)):
+            timestamp = float(fi) / fps
+            row = {
+                "observation.state": state.tolist(),
+                "action": action.tolist(),
                 "timestamp": timestamp,
+                "frame_index": fi,
+                "episode_index": ep_idx,
+                "index": start_frame_idx + fi,
+                "task_index": 0,
             }
-        rows.append(row)
+            for cam in cameras:
+                row[f"observation.images.{cam}"] = {
+                    "path": f"videos/chunk-000/observation.images.{cam}/episode_{ep_idx:06d}.mp4",
+                    "timestamp": timestamp,
+                }
+            rows.append(row)
 
-    parquet_path = data_dir / f"episode_{ep_idx:06d}.parquet"
-    pd.DataFrame(rows).to_parquet(parquet_path, index=False)
-    logger.info(f"Parquet gespeichert: {parquet_path}")
+        parquet_path = data_dir / f"episode_{ep_idx:06d}.parquet"
+        pd.DataFrame(rows).to_parquet(parquet_path, index=False)
+        logger.info(f"Parquet gespeichert: {parquet_path}")
 
-    # Videos enkodieren
+        # ep_idx sofort reservieren — kein anderer Prozess bekommt denselben Index
+        info["total_episodes"] = ep_idx + 1
+        info["total_frames"] = start_frame_idx + n_frames
+        with open(meta_dir / "info.json", "w") as f:
+            json.dump(info, f, indent=2)
+    # Lock freigegeben — Video-Encoding läuft parallel (jeder Prozess hat einzigartigen ep_idx)
+
+    # --- Phase 2: Videos enkodieren (außerhalb des Locks, dauert länger) ---
     for cam in cameras:
         video_dir = output_dir / "videos" / "chunk-000" / f"observation.images.{cam}"
         video_dir.mkdir(parents=True, exist_ok=True)
         encode_video(cam_dir, cam, video_dir / f"episode_{ep_idx:06d}.mp4", fps=fps)
 
-    # Meta aktualisieren
-    info["total_episodes"] = ep_idx + 1
-    info["total_frames"] = start_frame_idx + n_frames
-    ep_meta = {"episode_index": ep_idx, "tasks": [task_name], "length": n_frames}
-    append_meta(info, meta_dir, tasks_path, episodes_path, ep_meta, task_name)
-    update_stats(output_dir, states, actions)
+    # --- Phase 3: Abschließende Meta-Aktualisierung (unter Lock) ---
+    with open(lock_path, "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+
+        ep_meta = {"episode_index": ep_idx, "tasks": [task_name], "length": n_frames}
+        append_meta(info, meta_dir, tasks_path, episodes_path, ep_meta, task_name)
+        update_stats(output_dir, states, actions)
 
     # task_result.json (wird von run_data_collection.py erwartet)
     result = {"task_name": task_name, "task_status": True, "return_code": 0, "metric_status": {}}
