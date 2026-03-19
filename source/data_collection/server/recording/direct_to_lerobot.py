@@ -247,46 +247,46 @@ def convert(recording_path: str, task_info_path: str, output_dir: str, task_name
     lock_path = output_dir / "meta" / ".convert.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # --- Phase 1: Episode-Index reservieren + Parquet schreiben (unter Lock) ---
+    # --- Phase 1: Episode-Index atomar reservieren (Lock ~1ms) ---
     with open(lock_path, "w") as lf:
         fcntl.flock(lf, fcntl.LOCK_EX)
 
         info, ep_idx, start_frame_idx, meta_dir, tasks_path, episodes_path = \
             load_or_init_meta(output_dir, cameras, fps)
 
-        data_dir = output_dir / "data" / "chunk-000"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        rows = []
-        for fi, (state, action) in enumerate(zip(states, actions)):
-            timestamp = float(fi) / fps
-            row = {
-                "observation.state": state.tolist(),
-                "action": action.tolist(),
-                "timestamp": timestamp,
-                "frame_index": fi,
-                "episode_index": ep_idx,
-                "index": start_frame_idx + fi,
-                "task_index": 0,
-            }
-            for cam in cameras:
-                row[f"observation.images.{cam}"] = {
-                    "path": f"videos/chunk-000/observation.images.{cam}/episode_{ep_idx:06d}.mp4",
-                    "timestamp": timestamp,
-                }
-            rows.append(row)
-
-        parquet_path = data_dir / f"episode_{ep_idx:06d}.parquet"
-        pd.DataFrame(rows).to_parquet(parquet_path, index=False)
-        logger.info(f"Parquet gespeichert: {parquet_path}")
-
-        # ep_idx sofort reservieren — kein anderer Prozess bekommt denselben Index
+        # ep_idx sofort sichern — kein anderer Prozess bekommt denselben Index
         info["total_episodes"] = ep_idx + 1
         info["total_frames"] = start_frame_idx + n_frames
         with open(meta_dir / "info.json", "w") as f:
             json.dump(info, f, indent=2)
-    # Lock freigegeben — Video-Encoding läuft parallel (jeder Prozess hat einzigartigen ep_idx)
+    # Lock freigegeben — alle weiteren Schritte nutzen einzigartigen ep_idx
 
-    # --- Phase 2: Videos enkodieren (außerhalb des Locks, dauert länger) ---
+    # --- Phase 2: Parquet + Videos schreiben (außerhalb des Locks, Pfade sind eindeutig) ---
+    data_dir = output_dir / "data" / "chunk-000"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for fi, (state, action) in enumerate(zip(states, actions)):
+        timestamp = float(fi) / fps
+        row = {
+            "observation.state": state.tolist(),
+            "action": action.tolist(),
+            "timestamp": timestamp,
+            "frame_index": fi,
+            "episode_index": ep_idx,
+            "index": start_frame_idx + fi,
+            "task_index": 0,
+        }
+        for cam in cameras:
+            row[f"observation.images.{cam}"] = {
+                "path": f"videos/chunk-000/observation.images.{cam}/episode_{ep_idx:06d}.mp4",
+                "timestamp": timestamp,
+            }
+        rows.append(row)
+
+    parquet_path = data_dir / f"episode_{ep_idx:06d}.parquet"
+    pd.DataFrame(rows).to_parquet(parquet_path, index=False)
+    logger.info(f"Parquet gespeichert: {parquet_path}")
+
     for cam in cameras:
         video_dir = output_dir / "videos" / "chunk-000" / f"observation.images.{cam}"
         video_dir.mkdir(parents=True, exist_ok=True)
