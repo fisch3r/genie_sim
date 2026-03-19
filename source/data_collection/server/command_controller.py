@@ -1314,6 +1314,7 @@ class CommandController:
         with self.condition:
             self.data = data
             self.Command = Command
+            self.data_to_send = None  # discard any stale result from previous double-handling
             while self.data_to_send is None:
                 self.condition.wait()
             result = self.data_to_send
