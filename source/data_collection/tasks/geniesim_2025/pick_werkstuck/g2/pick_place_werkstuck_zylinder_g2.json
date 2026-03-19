@@ -395,17 +395,17 @@
                     "checker_name": "gripper_not_fully_closed",
                     "params": {
                         "arm": "right",
-                        "min_position": 0.0
+                        "min_position": 0.15
                     }
                 }
             ],
             "extra_params": {
                 "arm": "right",
                 "disable_upside_down": true,
-                "flip_grasp": true,
+                "flip_grasp": false,
                 "grasp_offset": 0.0,
                 "pick_up_distance": 0.15,
-                "pre_grasp_distance": 0.05
+                "pre_grasp_distance": 0.1
             },
             "passive": {
                 "object_id": "geniesim_2025_target_building_block",
