@@ -11,7 +11,7 @@ Object geometry (from object_parameters.json):
 Grasp pose convention (GraspNet / AgiBot):
   - 4x4 matrix in object coordinates
   - Column 0 (X): finger closing direction
-  - Column 1 (Y): finger opening direction
+  - Column 1 (Y): finger opening direction  (= baseline: finger tips at ±Y·half_width)
   - Column 2 (Z): approach direction (pre-grasp → grasp)
   - Column 3:     translation (gripper center between fingers)
 
@@ -20,24 +20,31 @@ robot_gripper_2_grasp_gripper for omnipicker:
 
 After that transform the pre-grasp is computed from col 2 of the TRANSFORMED pose:
   pre_grasp = grasp - col2_world * pre_grasp_distance
-
   col2_after_R2G = X_grasp_original
-
   → For pre_grasp to be ABOVE the grasp:  X_grasp must point DOWNWARD (Z < 0).
 
   disable_upside_down check (right arm): col1_world[2] > 0
   col1_after_R2G = -Z_grasp_original[2]
-
   → For the filter to pass:  Z_grasp[2] < 0  (downward approach component).
 
-Side-grasp design with downward tilt satisfies both:
-  - X_grasp_z = -cos(tilt) << 0   → pre_grasp is above the grasp     ✓
-  - Z_grasp_z = -sin(tilt) < 0    → disable_upside_down passes        ✓
+Diametral grasp design — tangential approach, radial finger baseline:
 
-Translation z = HEIGHT / 2:
-  Gripper center targets the UPPER HALF of the cylinder (not the centroid).
-  If the cylinder centroid sits at z=0.75 (table surface), the gripper center
-  ends up at z=0.76 — 1 cm above the table — avoiding table collisions.
+  Z_grasp (approach): tangential direction with `tilt` downward component.
+    After R_r2g: col1[2] = -Z_grasp[2] = sin(tilt) > 0 → disable_upside_down ✓
+
+  Y_grasp (finger opening = baseline): inward radial  [-cos θ, -sin θ, 0]
+    Finger tips at ±Y · half_width straddle the cylinder DIAMETRICALLY.
+    When closing, both fingers press from opposite sides simultaneously — no
+    net lateral force, cylinder stays centered.  (Old tangential-Y design had
+    the closing force push the cylinder sideways along the table.)
+
+  X_grasp = Y × Z  →  X_z = -cos(tilt) ≈ -0.985  (mostly downward)
+    After R_r2g: col2 = X_grasp, col2[2] ≈ -0.985
+    → pre_grasp = grasp + 0.985 · pre_grasp_distance upward ✓
+
+Translation z = HEIGHT / 2 = 0.01 m:
+  Gripper center targets the UPPER half of the cylinder.
+  Cylinder centroid at z≈0.75 → gripper center at z≈0.76 (1 cm above table).
 """
 
 import os
@@ -71,26 +78,18 @@ def make_pose(x_axis, y_axis, z_axis, translation):
 grasp_poses = []
 widths = []
 
-# ── Side grasps — fingers horizontal, approach with downward tilt ─────────────
+# ── Diametral grasps — tangential approach, fingers straddle diameter ─────────
 #
-# This design is compatible with the codebase's pre_grasp computation which
-# uses col2 of the R_r2g-transformed pose (= X_grasp_original) as the retreat
-# direction.
+# For each approach angle theta, the arm approaches tangentially while the two
+# finger tips sit on OPPOSITE sides of the cylinder diameter (radial direction).
+# Closing the gripper squeezes the cylinder symmetrically — no net push force.
 #
-# Z_grasp: approach direction, mostly horizontal with `tilt` downward component.
-#   After R_r2g: col1[2] = -Z_grasp[2] = sin(tilt) > 0 → passes disable_upside_down ✓
+# Z_grasp = tangential + tilt:  [-sin θ·cos t,  cos θ·cos t,  -sin t]
+# Y_grasp = inward radial:      [-cos θ,        -sin θ,        0     ]
+# X_grasp = Y × Z              (normalised, mostly downward)
 #
-# X_grasp: finger closing direction, mostly DOWNWARD.
-#   After R_r2g: col2 = X_grasp, col2[2] = -cos(tilt) < 0
-#   → pre_grasp = grasp + cos(tilt) * pre_grasp_distance upward ✓
-#
-# Y_grasp: finger opening direction, horizontal.
-#   → Both fingers at the same height, one on each side of the cylinder.
-#
-# Translation z = HEIGHT / 2 = 0.01 m:
-#   Gripper center targets the UPPER half of the cylinder.
-#   Even if the cylinder centroid is at z=0.75 (table surface), the gripper
-#   center ends up at z=0.76 — 1 cm clearance above the table.
+#   X_z = -cos(tilt) ≈ -0.985  → pre_grasp ~9.85 cm ABOVE grasp ✓
+#   col1[2] after R_r2g = sin(tilt) = 0.174 > 0 → disable_upside_down ✓
 
 n_angles = 36
 tilt = np.radians(10.0)
@@ -98,13 +97,13 @@ tilt = np.radians(10.0)
 for i in range(n_angles):
     theta = i * 2.0 * np.pi / n_angles
 
-    # Approach: horizontal + `tilt` downward
-    z_axis = np.array([np.cos(theta) * np.cos(tilt),
-                       np.sin(theta) * np.cos(tilt),
-                       -np.sin(tilt)])
+    # Approach: tangential + `tilt` downward
+    z_axis = np.array([-np.sin(theta) * np.cos(tilt),
+                        np.cos(theta) * np.cos(tilt),
+                        -np.sin(tilt)])
 
-    # Finger opening: horizontal, perpendicular to approach
-    y_axis = np.array([-np.sin(theta), np.cos(theta), 0.0])
+    # Finger baseline: inward radial → tips on opposite sides of diameter
+    y_axis = np.array([-np.cos(theta), -np.sin(theta), 0.0])
 
     # Finger closing: X = Y × Z  (right-handed, mostly downward)
     x_axis = np.cross(y_axis, z_axis)
@@ -115,7 +114,7 @@ for i in range(n_angles):
     grasp_poses.append(make_pose(x_axis, y_axis, z_axis, t))
     widths.append(GRASP_WIDTH)
 
-print(f"Side grasps (horizontal fingers, {np.degrees(tilt):.0f}° tilt, "
+print(f"Diametral grasps (tangential approach, {np.degrees(tilt):.0f}° tilt, "
       f"z_offset={HEIGHT/2:.3f}m = upper half): {n_angles}")
 
 # ── Save ──────────────────────────────────────────────────────────────────────
