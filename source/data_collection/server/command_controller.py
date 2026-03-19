@@ -41,7 +41,6 @@ from server.ros_publisher.base import USDBase
 from server.ui_builder import UIBuilder
 from server.utils import batch_matrices_to_quaternions_scipy_w_first
 
-MAX_EXTRACT_PROCESS_NUM = 2
 
 
 def find_joints(prim):
@@ -102,7 +101,10 @@ class CommandController:
         self.publish_ros = publish_ros
         self.rendering_step = rendering_step
         self.process = []
-        self.extract_process = []
+        # Serielle Konvertierungs-Queue: verhindert parallele ffmpeg-Prozesse
+        self._convert_queue = queue.Queue(maxsize=5)
+        self._convert_thread = threading.Thread(target=self._conversion_worker, daemon=True)
+        self._convert_thread.start()
         # Direct recording — kein ROS/DDS
         self._direct_recording = False
         self._direct_frames = []
@@ -1002,25 +1004,6 @@ class CommandController:
                 with open(metric_config_path, "w") as f:
                     json.dump(config, f, indent=4)
 
-                total_time = 0
-                clean_once = True
-                while len(self.extract_process) > MAX_EXTRACT_PROCESS_NUM or clean_once:
-                    new_process = []
-                    clean_once = False
-                    for p, log_file in self.extract_process:
-                        if p.poll():
-                            new_process.append((p, log_file))
-                        else:
-                            log_file.close()
-                    self.extract_process = new_process
-                    time.sleep(0.1)
-                    total_time += 0.1
-                    if total_time > 120:
-                        process, log_file = self.extract_process[0]
-                        os.killpg(os.getpgid(process.pid), signal.SIGINT)
-                        log_file.close()
-                        logger.info("Extract process waiting timeout 120s, kill it")
-
                 # Direct frames als JSON speichern
                 frames_path = self.path_to_save + "/direct_frames.json"
                 with open(frames_path, "w") as _f:
@@ -1032,22 +1015,12 @@ class CommandController:
                     os.path.dirname(os.path.dirname(self.path_to_save)),
                     "lerobot_dataset"
                 )
-                log_file = open(self.path_to_save + "/lerobot_convert.log", "w")
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                extract_sub_process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        f"{current_dir}/recording/direct_to_lerobot.py",
-                        "--recording_path", self.path_to_save,
-                        "--task_info_path", task_info_path,
-                        "--output_dir", lerobot_dir,
-                    ],
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    preexec_fn=os.setsid,
+                # Konvertierung über seriellen Worker-Thread einreihen (kein paralleles ffmpeg)
+                self._convert_queue.put(
+                    (self.path_to_save, task_info_path, lerobot_dir),
+                    block=True,
                 )
-                logger.info(f"LeRobot conversion started → {lerobot_dir}")
-                self.extract_process.append((extract_sub_process, log_file))
+                logger.info(f"LeRobot conversion queued ({self._convert_queue.qsize()} pending) → {lerobot_dir}")
             else:
                 # remove folder if exist
                 if os.path.exists(self.path_to_save):
@@ -1058,17 +1031,48 @@ class CommandController:
 
     def handle_exit(self):
         """Handle Command 17: Exit"""
-        # wait for extract process to finish
-        for process, log_file in self.extract_process:
-            try:
-                if process.poll() is None:
-                    process.wait(timeout=300)
-                log_file.close()
-            except subprocess.TimeoutExpired:
-                logger.info("Exit:Extract process waiting timeout 300s, kill it")
-                os.killpg(os.getpgid(process.pid), signal.SIGINT)
+        # Sentinel in Queue: Worker-Thread beendet sich sauber nach allen ausstehenden Konvertierungen
+        self._convert_queue.put(None)
+        logger.info("Waiting for remaining LeRobot conversions to finish...")
+        self._convert_thread.join(timeout=600)
+        if self._convert_thread.is_alive():
+            logger.warning("Conversion worker did not finish in 600s, continuing anyway")
         self.exit = self.data["exit"]
         self.data_to_send = "exit"
+
+    def _conversion_worker(self):
+        """Daemon-Thread: verarbeitet LeRobot-Konvertierungen seriell — kein paralleles ffmpeg."""
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        while True:
+            item = self._convert_queue.get()
+            if item is None:  # Sentinel: sauber beenden
+                self._convert_queue.task_done()
+                break
+            recording_path, task_info_path, lerobot_dir = item
+            log_path = recording_path + "/lerobot_convert.log"
+            try:
+                with open(log_path, "w") as log_file:
+                    p = subprocess.Popen(
+                        [
+                            sys.executable,
+                            f"{current_dir}/recording/direct_to_lerobot.py",
+                            "--recording_path", recording_path,
+                            "--task_info_path", task_info_path,
+                            "--output_dir", lerobot_dir,
+                        ],
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT,
+                        preexec_fn=os.setsid,
+                    )
+                    p.wait(timeout=600)
+                if p.returncode != 0:
+                    logger.warning(f"LeRobot conversion failed (rc={p.returncode}): {recording_path}")
+                else:
+                    logger.info(f"LeRobot conversion done: {recording_path}")
+            except Exception as e:
+                logger.error(f"Conversion worker error: {e}")
+            finally:
+                self._convert_queue.task_done()
 
     def handle_get_ee_pose(self):
         """Handle Command 18: GetEEPose"""
