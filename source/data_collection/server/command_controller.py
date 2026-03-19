@@ -1311,9 +1311,9 @@ class CommandController:
         self.playback_waited_frame_num = 0
 
     def _on_blocking_thread(self, data, Command):
-        self.data = data
-        self.Command = Command
         with self.condition:
+            self.data = data
+            self.Command = Command
             while self.data_to_send is None:
                 self.condition.wait()
             result = self.data_to_send

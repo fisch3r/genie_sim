@@ -240,7 +240,7 @@ class JointService(joint_channel_pb2_grpc.JointControlService):
             for key, value in result[1].items():
                 ik_status.joint_names.append(key)
                 ik_status.joint_positions.append(value)
-            if req.output_link_pose and ObsAvoid:
+            if req.output_link_pose and ObsAvoid and len(result) > 2:
                 for key, value in result[2].items():
                     link_pose = joint_channel_pb2.LinkPose()
                     link_pose.link_name = key
