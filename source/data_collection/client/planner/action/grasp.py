@@ -149,6 +149,7 @@ class PickStage(Stage):
             grasp_poses[ik_success],
         )
         grasp_widths = grasp_widths[ik_success]
+        logger.info(f"{self.action_type}: {len(grasp_poses)} grasp_gripper_pose(s) passed Isaac IK")
 
         if error_type == "RandomPerturbations":
             error_params = error_data.get("params", {})

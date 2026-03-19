@@ -27,24 +27,28 @@ After that transform the pre-grasp is computed from col 2 of the TRANSFORMED pos
   col1_after_R2G = -Z_grasp_original[2]
   → For the filter to pass:  Z_grasp[2] < 0  (downward approach component).
 
-Diametral grasp design — tangential approach, radial finger baseline:
+Diametral grasp design — radial approach, diametral finger baseline:
 
-  Z_grasp (approach): tangential direction with `tilt` downward component.
+  After right-multiplying R_grasp by R_r2g the GRIPPER axes become:
+    Y_gripper = -Z_grasp   ← actual finger opening direction in world frame
+
+  For a DIAMETRAL grip, Y_gripper must be INWARD RADIAL → Z_grasp = OUTWARD RADIAL.
+
+  Z_grasp (approach): outward radial + `tilt` downward component.
+    [cos θ·cos t, sin θ·cos t, -sin t]
+    After R_r2g: Y_gripper = -Z_grasp = inward radial → DIAMETRAL grip ✓
+    Both fingers contact opposite sides of the cylinder simultaneously.
     After R_r2g: col1[2] = -Z_grasp[2] = sin(tilt) > 0 → disable_upside_down ✓
 
-  Y_grasp (finger opening = baseline): inward radial  [-cos θ, -sin θ, 0]
-    Finger tips at ±Y · half_width straddle the cylinder DIAMETRICALLY.
-    When closing, both fingers press from opposite sides simultaneously — no
-    net lateral force, cylinder stays centered.  (Old tangential-Y design had
-    the closing force push the cylinder sideways along the table.)
+  Y_grasp (in DB frame) = tangential: [-sin θ, cos θ, 0]
+    (becomes X_gripper = -Y_grasp after R_r2g, irrelevant for grip geometry)
 
-  X_grasp = Y × Z  →  X_z = -cos(tilt) ≈ -0.985  (mostly downward)
-    After R_r2g: col2 = X_grasp, col2[2] ≈ -0.985
+  X_grasp = Y × Z = [-cos θ·sin t, -sin θ·sin t, -cos t]  (mostly downward)
+    After R_r2g: Z_gripper = X_grasp, Z_gripper[2] ≈ -0.985
     → pre_grasp = grasp + 0.985 · pre_grasp_distance upward ✓
 
 Translation z = HEIGHT / 2 = 0.01 m:
-  Gripper center targets the UPPER half of the cylinder.
-  Cylinder centroid at z≈0.75 → gripper center at z≈0.76 (1 cm above table).
+  Gripper center at the cylinder centroid (1 cm above table surface).
 """
 
 import os
@@ -78,15 +82,14 @@ def make_pose(x_axis, y_axis, z_axis, translation):
 grasp_poses = []
 widths = []
 
-# ── Diametral grasps — tangential approach, fingers straddle diameter ─────────
+# ── Diametral grasps — radial approach, diametral finger baseline ─────────────
 #
-# For each approach angle theta, the arm approaches tangentially while the two
-# finger tips sit on OPPOSITE sides of the cylinder diameter (radial direction).
-# Closing the gripper squeezes the cylinder symmetrically — no net push force.
+# After R_r2g: Y_gripper = -Z_grasp = inward radial → DIAMETRAL grip.
+# Both finger tips contact opposite sides of the cylinder simultaneously.
 #
-# Z_grasp = tangential + tilt:  [-sin θ·cos t,  cos θ·cos t,  -sin t]
-# Y_grasp = inward radial:      [-cos θ,        -sin θ,        0     ]
-# X_grasp = Y × Z              (normalised, mostly downward)
+# Z_grasp = outward radial + tilt:  [cos θ·cos t,  sin θ·cos t,  -sin t]
+# Y_grasp = tangential:             [-sin θ,        cos θ,         0    ]
+# X_grasp = Y × Z                  [-cos θ·sin t, -sin θ·sin t,  -cos t]
 #
 #   X_z = -cos(tilt) ≈ -0.985  → pre_grasp ~9.85 cm ABOVE grasp ✓
 #   col1[2] after R_r2g = sin(tilt) = 0.174 > 0 → disable_upside_down ✓
@@ -97,13 +100,13 @@ tilt = np.radians(10.0)
 for i in range(n_angles):
     theta = i * 2.0 * np.pi / n_angles
 
-    # Approach: tangential + `tilt` downward
-    z_axis = np.array([-np.sin(theta) * np.cos(tilt),
-                        np.cos(theta) * np.cos(tilt),
-                        -np.sin(tilt)])
+    # Approach: outward radial + `tilt` downward
+    z_axis = np.array([np.cos(theta) * np.cos(tilt),
+                       np.sin(theta) * np.cos(tilt),
+                       -np.sin(tilt)])
 
-    # Finger baseline: inward radial → tips on opposite sides of diameter
-    y_axis = np.array([-np.cos(theta), -np.sin(theta), 0.0])
+    # Finger baseline: tangential → after R_r2g becomes inward radial (diametral)
+    y_axis = np.array([-np.sin(theta), np.cos(theta), 0.0])
 
     # Finger closing: X = Y × Z  (right-handed, mostly downward)
     x_axis = np.cross(y_axis, z_axis)
