@@ -34,6 +34,12 @@ if __name__ == "__main__":
         default=10,
     )
     parser.add_argument(
+        "--force_save",
+        action="store_true",
+        default=False,
+        help="Save all episodes regardless of success (for debugging)",
+    )
+    parser.add_argument(
         "--task_template",
         type=str,
         default="tasks/task.json",
@@ -89,6 +95,7 @@ if __name__ == "__main__":
         fps=task_info["recording_setting"]["fps"],
         render_semantic=render_semantic,
         origin_task_info=task_info,
+        force_save=args.force_save,
     )
     logger.info("job done")
     robot.client.exit()

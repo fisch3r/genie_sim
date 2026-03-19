@@ -841,6 +841,7 @@ class DataCollectionAgent(BaseAgent):
         fps=10,
         render_semantic=False,
         origin_task_info={},
+        force_save=False,
     ):
         tasks = glob.glob(task_folder + "/*.json")
         for index, task_file in enumerate(tasks):
@@ -984,7 +985,10 @@ class DataCollectionAgent(BaseAgent):
             fail_stage_step = [stage_id, step_id] if not success else [-1, -1]
 
             task_info.copy()
-            self.robot.client.send_task_status(success, fail_stage_step)
+            save_status = success or force_save
+            episode_name = os.path.basename(task_file).replace(".json", "")
+            logger.info(f"Episode: {episode_name} | success={success} | saving={save_status}")
+            self.robot.client.send_task_status(save_status, fail_stage_step)
             if success:
                 logger.info(">>>>>>>>>>>>>>>>>>>>  TASK SUCCESS ! <<<<<<<<<<<<<<<<<<<<")
 

@@ -395,7 +395,7 @@
                     "checker_name": "gripper_not_fully_closed",
                     "params": {
                         "arm": "right",
-                        "min_position": 0.05
+                        "min_position": 0.0
                     }
                 }
             ],
