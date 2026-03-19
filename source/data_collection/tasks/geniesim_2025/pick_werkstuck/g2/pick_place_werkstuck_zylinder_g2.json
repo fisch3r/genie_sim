@@ -260,7 +260,7 @@
         ],
         "fps": 30,
         "noised_probability": 0.2,
-        "num_of_episode": 20
+        "num_of_episode": 10
     },
     "robot": {
         "arm": "dual",

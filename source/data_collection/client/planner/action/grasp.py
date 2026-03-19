@@ -411,6 +411,7 @@ class PickStage(Stage):
         # downsample grasp pose
         best_grasp_poses, _ = random_downsample(best_grasp_poses, 100, False)
         if best_grasp_poses.shape[0] >= 1:
+            robot.client.remove_objs_from_obstacle([objects[self.passive_obj_id].prim_path])
             joint_names = robot.joint_names[arm]
 
             ik_success, ik_info = robot.solve_ik(
@@ -524,13 +525,15 @@ class PickStage(Stage):
                     motion_type="AvoidObs",
                 )
             )
-            # then to grasp pose
+            # then to grasp pose — use Simple (linear joint interpolation) so the arm
+            # follows the straight radial path instead of cuRobo replanning a
+            # downward-first shortcut when the target object is absent from obstacles.
             action_sequence.add_action(
                 Action(
                     grasp_pose=grasp_pose,
                     gripper_action="close",
                     transform_world=np.eye(4),
-                    motion_type="AvoidObs",
+                    motion_type="Simple",
                     extra_params={
                         "path_constraint": [],
                         "offset_and_constraint_in_goal_frame": True,
