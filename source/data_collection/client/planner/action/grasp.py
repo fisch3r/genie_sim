@@ -95,6 +95,8 @@ class PickStage(Stage):
         if random_grasp_pose:
             grasp_poses_canonical, grasp_widths = overweite_grasp_data(100)
 
+        obj_pos = objects[self.passive_obj_id].obj_pose[:3, 3]
+        logger.info(f"Object '{self.passive_obj_id}' world position: {obj_pos}")
         grasp_poses = objects[self.passive_obj_id].obj_pose[np.newaxis, ...] @ grasp_poses_canonical
 
         filter_grasp_pose_info = self.extra_params.get("filter_grasp_pose", {})
