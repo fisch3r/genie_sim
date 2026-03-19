@@ -411,9 +411,6 @@ class PickStage(Stage):
         # downsample grasp pose
         best_grasp_poses, _ = random_downsample(best_grasp_poses, 100, False)
         if best_grasp_poses.shape[0] >= 1:
-            # Remove target object from cuRobo collision world so the grasp approach
-            # trajectory is not blocked by the object itself.
-            robot.client.remove_objs_from_obstacle([objects[self.passive_obj_id].prim_path])
             joint_names = robot.joint_names[arm]
 
             ik_success, ik_info = robot.solve_ik(
