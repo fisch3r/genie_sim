@@ -213,7 +213,10 @@ class IsaacSimRpcRobot(Robot):
             self.open_gripper(id=arm, width=0.1)
         elif action == "close":
             self.close_gripper(id=arm)
-            time.sleep(0.7)
+            # Wait 1.2s for fingers to settle (total close-wait = 0.3 + 1.2 = 1.5s).
+            # The gRPC set_gripper_state is fire-and-forget (no is_reached feedback over the wire),
+            # so we use a conservative sleep instead of busy-polling.
+            time.sleep(1.2)
 
     def move(self, content):
         """

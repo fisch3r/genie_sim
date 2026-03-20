@@ -102,7 +102,8 @@ class CommandController:
         self.rendering_step = rendering_step
         self.process = []
         # Serielle Konvertierungs-Queue: verhindert parallele ffmpeg-Prozesse
-        self._convert_queue = queue.Queue(maxsize=5)
+        # Unbounded — blockiert den Physics-Thread niemals (ffmpeg läuft im Worker-Thread)
+        self._convert_queue = queue.Queue()
         self._convert_thread = threading.Thread(target=self._conversion_worker, daemon=True)
         self._convert_thread.start()
         # Direct recording — kein ROS/DDS
@@ -1015,11 +1016,8 @@ class CommandController:
                     os.path.dirname(os.path.dirname(self.path_to_save)),
                     "lerobot_dataset"
                 )
-                # Konvertierung über seriellen Worker-Thread einreihen (kein paralleles ffmpeg)
-                self._convert_queue.put(
-                    (self.path_to_save, task_info_path, lerobot_dir),
-                    block=True,
-                )
+                # Konvertierung über seriellen Worker-Thread einreihen (niemals blockierend)
+                self._convert_queue.put((self.path_to_save, task_info_path, lerobot_dir))
                 logger.info(f"LeRobot conversion queued ({self._convert_queue.qsize()} pending) → {lerobot_dir}")
             else:
                 # remove folder if exist

@@ -814,6 +814,10 @@ class DataCollectionAgent(BaseAgent):
                 if self.attached_obj_id is not None:
                     arm = stage.extra_params.get("arm", "right")
                     if self.attached_obj_id.split("/")[0] not in self.articulated_objs:
+                        # Brief physics-settling pause: ensures finger joints have come to rest
+                        # before the FixedJoint (attach_obj) is created, preventing the object
+                        # from jumping due to a pose snapshot taken mid-motion.
+                        time.sleep(0.2)
                         self.robot.client.attach_obj(
                             prim_paths=[objects[self.attached_obj_id].prim_path],
                             is_right=arm == "right",
@@ -898,17 +902,53 @@ class DataCollectionAgent(BaseAgent):
                             block=True,
                         )
                     continue
-                # Initialize action sequence
-                if not stage.initialize_action_sequence_buffer(objects, self.robot):
-                    task_success = False
-                    logger.warning(f"Stage {stage_id} {stage.action_type} initialize action sequence buffer failed")
+                # Initialize action sequence — with episode-level IK retry
+                store_name = f"stage_{stage_id}"
+                self.robot.client.store_current_state(store_name)
+                logger.info(f"Store state {store_name}")
+                ik_attempt = 0
+                while not stage.initialize_action_sequence_buffer(objects, self.robot):
+                    ik_attempt += 1
+                    logger.warning(
+                        f"Stage {stage_id} {stage.action_type} initialize action sequence buffer failed"
+                        f" (IK retry {ik_attempt}/{MAX_ATTEMPTIONS})"
+                    )
+                    if ik_attempt >= MAX_ATTEMPTIONS:
+                        task_success = False
+                        break
+                    # Restore robot to pre-stage state
+                    self.robot.client.playback(store_name)
+                    logger.info(f"IK retry: playback state {store_name}")
+                    # Respawn objects to their original task positions
+                    respawn_poses = []
+                    for obj_info in task_info.get("objects", []):
+                        if "fix_pose" in obj_info.get("object_id", ""):
+                            continue
+                        if "position" not in obj_info or "quaternion" not in obj_info:
+                            continue
+                        respawn_poses.append(
+                            {
+                                "prim_path": obj_info.get(
+                                    "prim_path", "/World/Objects/%s" % obj_info["object_id"]
+                                ),
+                                "position": obj_info["position"],
+                                "rotation": obj_info["quaternion"],
+                            }
+                        )
+                    if respawn_poses:
+                        self.robot.client.set_object_pose(respawn_poses, [])
+                        logger.info(f"IK retry: respawned {len(respawn_poses)} objects to initial poses")
+                    time.sleep(1)
+                    objects = self.update_objects(objects)
+                if not task_success:
+                    logger.warning(
+                        f"Stage {stage_id} {stage.action_type} initialize action sequence buffer failed"
+                        f" after {ik_attempt} IK retries, giving up"
+                    )
                     break
                 attempt_count = 0
                 stage_success = False
                 try_next_sequence = True
-                store_name = f"stage_{stage_id}"
-                self.robot.client.store_current_state(store_name)
-                logger.info(f"Store state {store_name}")
                 while not stage_success and try_next_sequence and attempt_count < MAX_ATTEMPTIONS:
                     # Execution
                     stage_success = True

@@ -37,7 +37,7 @@
                     },
                     "y": {
                         "max": 1,
-                        "min": 0
+                        "min": 0.65
                     }
                 },
                 "workspace_id": "work_table"
@@ -63,7 +63,7 @@
                     },
                     "y": {
                         "max": 1,
-                        "min": 0
+                        "min": 0.65
                     }
                 },
                 "workspace_id": "work_table"
@@ -89,7 +89,7 @@
                     },
                     "y": {
                         "max": 1,
-                        "min": 0
+                        "min": 0.65
                     }
                 },
                 "workspace_id": "work_table"
@@ -115,7 +115,7 @@
                     },
                     "y": {
                         "max": 1,
-                        "min": 0
+                        "min": 0.65
                     }
                 },
                 "workspace_id": "work_table"
@@ -141,7 +141,7 @@
                     },
                     "y": {
                         "max": 1,
-                        "min": 0
+                        "min": 0.65
                     }
                 },
                 "workspace_id": "work_table"
@@ -167,7 +167,7 @@
                     },
                     "y": {
                         "max": 1,
-                        "min": 0
+                        "min": 0.65
                     }
                 },
                 "workspace_id": "work_table"
@@ -193,7 +193,7 @@
                     },
                     "y": {
                         "max": 1,
-                        "min": 0
+                        "min": 0.65
                     }
                 },
                 "workspace_id": "work_table"
@@ -219,7 +219,7 @@
                     },
                     "y": {
                         "max": 1,
-                        "min": 0
+                        "min": 0.65
                     }
                 },
                 "workspace_id": "work_table"
@@ -238,12 +238,12 @@
                 "object_id": "geniesim_2025_target_building_block",
                 "sub_workspace": {
                     "x": {
-                        "max": 0.8,
+                        "max": 0.5,
                         "min": 0.1
                     },
                     "y": {
-                        "max": 0.6,
-                        "min": 0
+                        "max": 0.55,
+                        "min": 0.1
                     }
                 },
                 "workspace_id": "work_table"
@@ -388,14 +388,14 @@
                         "object_id": "geniesim_2025_target_building_block",
                         "rule": "lessThan",
                         "target_id": "gripper",
-                        "value": 0.04
+                        "value": 0.07
                     }
                 },
                 {
                     "checker_name": "gripper_not_fully_closed",
                     "params": {
                         "arm": "right",
-                        "min_position": 0.15
+                        "min_position": 0.40
                     }
                 }
             ],
@@ -405,7 +405,7 @@
                 "flip_grasp": false,
                 "grasp_offset": 0.0,
                 "pick_up_distance": 0.15,
-                "pre_grasp_distance": 0.1
+                "pre_grasp_distance": 0.15
             },
             "passive": {
                 "object_id": "geniesim_2025_target_building_block",
