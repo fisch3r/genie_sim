@@ -67,7 +67,7 @@ def main():
     parser.add_argument(
         "--recording_root",
         type=Path,
-        default=Path(__file__).parents[1] / "recording_data",
+        default=Path(__file__).parents[2] / "recording_data",
         help="Pfad zum recording_data Verzeichnis (default: ../recording_data/)",
     )
     args = parser.parse_args()
