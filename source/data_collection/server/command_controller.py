@@ -1016,9 +1016,9 @@ class CommandController:
                     os.path.dirname(os.path.dirname(self.path_to_save)),
                     "lerobot_dataset"
                 )
-                # Konvertierung über seriellen Worker-Thread einreihen (niemals blockierend)
-                self._convert_queue.put((self.path_to_save, task_info_path, lerobot_dir))
-                logger.info(f"LeRobot conversion queued ({self._convert_queue.qsize()} pending) → {lerobot_dir}")
+                # Konvertierung wird nach Sim-Ende als Post-Processing durchgeführt (Option A)
+                # Kein Worker-Thread während der Simulation → kein GIL/gRPC-Problem
+                logger.info(f"LeRobot conversion skipped (post-processing mode) → {lerobot_dir}")
             else:
                 # remove folder if exist
                 if os.path.exists(self.path_to_save):
@@ -1029,12 +1029,6 @@ class CommandController:
 
     def handle_exit(self):
         """Handle Command 17: Exit"""
-        # Sentinel in Queue: Worker-Thread beendet sich sauber nach allen ausstehenden Konvertierungen
-        self._convert_queue.put(None)
-        logger.info("Waiting for remaining LeRobot conversions to finish...")
-        self._convert_thread.join(timeout=600)
-        if self._convert_thread.is_alive():
-            logger.warning("Conversion worker did not finish in 600s, continuing anyway")
         self.exit = self.data["exit"]
         self.data_to_send = "exit"
 
