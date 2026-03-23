@@ -139,6 +139,15 @@ class PickStage(Stage):
         transport_vector = transport_vector / np.linalg.norm(transport_vector, axis=1, keepdims=True)
 
         grasp_poses[:, :3, 3] = grasp_poses[:, :3, 3] + transport_vector * grasp_offset
+
+        # finger center offset: shift TCP along local X so narrow finger aligns with object center
+        finger_center_offset = self.extra_params.get("finger_center_offset", 0.0)
+        if finger_center_offset != 0.0:
+            x_transport = grasp_rotate @ np.array([1, 0, 0, 0])[:, np.newaxis]
+            x_transport = x_transport[:, :3, 0]
+            x_transport = x_transport / np.linalg.norm(x_transport, axis=1, keepdims=True)
+            grasp_poses[:, :3, 3] = grasp_poses[:, :3, 3] + x_transport * finger_center_offset
+
         object_pose_inverse = np.linalg.inv(objects[self.passive_obj_id].obj_pose)
         grasp_poses_canonical = object_pose_inverse[np.newaxis, ...] @ grasp_poses
 
@@ -528,6 +537,7 @@ class PickStage(Stage):
             # then to grasp pose — use Simple (linear joint interpolation) so the arm
             # follows the straight radial path instead of cuRobo replanning a
             # downward-first shortcut when the target object is absent from obstacles.
+            grasp_approach_speed_ratio = self.extra_params.get("grasp_approach_speed_ratio", 1.0)
             action_sequence.add_action(
                 Action(
                     grasp_pose=grasp_pose,
@@ -537,6 +547,7 @@ class PickStage(Stage):
                     extra_params={
                         "path_constraint": [],
                         "offset_and_constraint_in_goal_frame": True,
+                        "motion_run_ratio": grasp_approach_speed_ratio,
                     },
                 )
             )

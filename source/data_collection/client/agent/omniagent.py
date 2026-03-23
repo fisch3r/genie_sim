@@ -250,6 +250,48 @@ class DataCollectionAgent(BaseAgent):
 
         return objects
 
+    def _ensure_target_upright(self, stage, objects, task_info, upright_threshold=0.85):
+        """Re-upright the passive (target) object if physics has tipped it on its side.
+
+        Uses the Z-column of the object's rotation matrix in world frame: for objects
+        with upAxis=Z, obj_pose[2,2] should be ~1.0 when upright and ~0 when on its side.
+        If tilted beyond threshold, teleports back to its initial upright pose from task_info.
+        """
+        if not hasattr(stage, "passive_obj_id"):
+            return
+        target_id = stage.passive_obj_id
+        if target_id not in objects:
+            return
+        obj_z_up = objects[target_id].obj_pose[2, 2]
+        if obj_z_up >= upright_threshold:
+            return
+        logger.warning(
+            f"Target '{target_id}' is tilted (z_up={obj_z_up:.2f} < {upright_threshold}), re-uprighting"
+        )
+        for obj_info in task_info.get("objects", []):
+            if obj_info.get("object_id") != target_id:
+                continue
+            if "position" not in obj_info or "quaternion" not in obj_info:
+                break
+            self.robot.client.set_object_pose(
+                [
+                    {
+                        "prim_path": obj_info.get(
+                            "prim_path", "/World/Objects/%s" % target_id
+                        ),
+                        "position": obj_info["position"],
+                        "rotation": obj_info["quaternion"],
+                    }
+                ],
+                [],
+            )
+            time.sleep(0.8)
+            objects = self.update_objects(objects)
+            logger.info(
+                f"Re-upright done: z_up={objects[target_id].obj_pose[2, 2]:.2f}"
+            )
+            break
+
     def check_task_file(self, task_file):
         with open(task_file, "r") as f:
             task_info = json.load(f)
@@ -663,6 +705,7 @@ class DataCollectionAgent(BaseAgent):
             error_data = extra_params["error_data"]
             error_params = error_data.get("params", {})
             motion_run_ratio = error_params.get("motion_run_ratio", 1.0)
+        motion_run_ratio = extra_params.get("motion_run_ratio", motion_run_ratio)
             if error_data.get("type", None) == "Drop":
                 timing = error_params.get("drop_timing", 0.2)
                 gripper_action_timing = {
@@ -906,6 +949,9 @@ class DataCollectionAgent(BaseAgent):
                 store_name = f"stage_{stage_id}"
                 self.robot.client.store_current_state(store_name)
                 logger.info(f"Store state {store_name}")
+                # Refresh poses from physics before IK and ensure target is upright
+                objects = self.update_objects(objects)
+                self._ensure_target_upright(stage, objects, task_info)
                 ik_attempt = 0
                 while not stage.initialize_action_sequence_buffer(objects, self.robot):
                     ik_attempt += 1
@@ -940,6 +986,7 @@ class DataCollectionAgent(BaseAgent):
                         logger.info(f"IK retry: respawned {len(respawn_poses)} objects to initial poses")
                     time.sleep(1)
                     objects = self.update_objects(objects)
+                    self._ensure_target_upright(stage, objects, task_info)
                 if not task_success:
                     logger.warning(
                         f"Stage {stage_id} {stage.action_type} initialize action sequence buffer failed"
