@@ -705,7 +705,6 @@ class DataCollectionAgent(BaseAgent):
             error_data = extra_params["error_data"]
             error_params = error_data.get("params", {})
             motion_run_ratio = error_params.get("motion_run_ratio", 1.0)
-        motion_run_ratio = extra_params.get("motion_run_ratio", motion_run_ratio)
             if error_data.get("type", None) == "Drop":
                 timing = error_params.get("drop_timing", 0.2)
                 gripper_action_timing = {
@@ -717,6 +716,7 @@ class DataCollectionAgent(BaseAgent):
             elif error_data.get("type", None) == "KeepClose":
                 if action_type == "pick":
                     remove_obstacles = True
+        motion_run_ratio = extra_params.get("motion_run_ratio", motion_run_ratio)
 
         self.robot.client.set_frame_state(
             action_type,
