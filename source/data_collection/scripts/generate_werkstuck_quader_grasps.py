@@ -108,13 +108,13 @@ for i in range(n_angles):
     x_axis = np.cross(y_axis, z_axis)
     x_axis /= np.linalg.norm(x_axis)
 
-    # Gripper center at cube centroid
-    t = np.array([0.0, 0.0, 0.0])
+    # Gripper center above centroid — upper quarter of cube avoids table
+    t = np.array([0.0, 0.0, SIDE * 0.25])
     grasp_poses.append(make_pose(x_axis, y_axis, z_axis, t))
     widths.append(GRASP_WIDTH)
 
 print(f"Side grasps ({n_angles} angles, {np.degrees(tilt):.0f}° tilt, "
-      f"gripper at centroid): {n_angles}")
+      f"z_offset={SIDE * 0.25:.3f}m = upper quarter): {n_angles}")
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 grasp_poses = np.array(grasp_poses, dtype=np.float64)
