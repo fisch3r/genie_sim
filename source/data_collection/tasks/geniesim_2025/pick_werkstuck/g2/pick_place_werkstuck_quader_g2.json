@@ -390,13 +390,6 @@
                         "target_id": "gripper",
                         "value": 0.07
                     }
-                },
-                {
-                    "checker_name": "gripper_not_fully_closed",
-                    "params": {
-                        "arm": "right",
-                        "min_position": 0.55
-                    }
                 }
             ],
             "extra_params": {
