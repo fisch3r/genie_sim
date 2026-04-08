@@ -45,10 +45,19 @@ if __name__ == "__main__":
         default="tasks/task.json",
         help="",
     )
+    parser.add_argument(
+        "--num_of_episode",
+        type=int,
+        default=None,
+        help="Override num_of_episode from task JSON",
+    )
     args = parser.parse_args()
     task_template_file = args.task_template
     with open(task_template_file, "r") as file:
         task_info = json.load(file)
+
+    if args.num_of_episode is not None:
+        task_info["recording_setting"]["num_of_episode"] = args.num_of_episode
 
     # generate task info
     task_generator = TaskGenerator(task_info)

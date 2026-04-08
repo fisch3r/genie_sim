@@ -256,7 +256,12 @@ class DataCollectionAgent(BaseAgent):
         Uses the Z-column of the object's rotation matrix in world frame: for objects
         with upAxis=Z, obj_pose[2,2] should be ~1.0 when upright and ~0 when on its side.
         If tilted beyond threshold, teleports back to its initial upright pose from task_info.
+
+        Set extra_params.upright_check=false in the task JSON to skip this check for
+        objects that cannot tip over (e.g. a cube).
         """
+        if hasattr(stage, "extra_params") and not stage.extra_params.get("upright_check", True):
+            return
         if not hasattr(stage, "passive_obj_id"):
             return
         target_id = stage.passive_obj_id
