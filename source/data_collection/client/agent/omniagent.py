@@ -870,6 +870,13 @@ class DataCollectionAgent(BaseAgent):
                             prim_paths=[objects[self.attached_obj_id].prim_path],
                             is_right=arm == "right",
                         )
+                        # Post-attach settling: give the FixedJoint a few physics frames to
+                        # become fully active before the lift motion starts.  Large objects
+                        # (e.g. 80 mm cube) need more time than the pre-attach pause alone.
+                        # Set extra_params.post_attach_settle_time in the task JSON to tune.
+                        post_settle = stage.extra_params.get("post_attach_settle_time", 0.0)
+                        if post_settle > 0:
+                            time.sleep(post_settle)
                 self.robot.client.set_frame_state(
                     action_type,
                     step_index,

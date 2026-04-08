@@ -408,7 +408,8 @@
                 "grasp_offset": 0.0,
                 "pick_up_distance": 0.15,
                 "pre_grasp_distance": 0.15,
-                "upright_check": false
+                "upright_check": false,
+                "post_attach_settle_time": 0.5
             },
             "passive": {
                 "object_id": "geniesim_2025_target_building_block",
