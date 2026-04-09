@@ -405,7 +405,7 @@
                 "flip_grasp": false,
                 "finger_center_offset": 0.012,
                 "grasp_approach_speed_ratio": 0.3,
-                "grasp_offset": 0.0,
+                "grasp_offset": 0.01,
                 "pick_up_distance": 0.15,
                 "pre_grasp_distance": 0.15,
                 "upright_check": false,
