@@ -746,6 +746,12 @@ class DataCollectionAgent(BaseAgent):
 
         # check if target_gripper_pose is reachable
 
+        # If an object is attached and this step keeps the gripper closed, send
+        # the close command BEFORE move_pose so the controller holds it closed
+        # throughout the motion (not just after it completes).
+        if self.attached_obj_id is not None and gripper_action == "close":
+            self.robot.set_gripper_action("close", arm=arm)
+
         if target_gripper_pose is None:
             state = True
         else:
