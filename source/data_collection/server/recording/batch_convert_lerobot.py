@@ -56,10 +56,13 @@ def convert_episode(episode_dir: Path, lerobot_dir: Path, script_path: Path) -> 
         )
     if result.returncode == 0:
         print("OK")
-        return True
+        return "ok"
+    elif result.returncode == 2:
+        print("gefiltert (metric)")
+        return "filtered"
     else:
         print(f"FEHLER (rc={result.returncode}) — Log: {log_path}")
-        return False
+        return "error"
 
 
 def main():
@@ -98,16 +101,19 @@ def main():
         return
 
     success = 0
+    filtered = 0
     failed = 0
     for ep in pending:
-        ok = convert_episode(ep, lerobot_dir, script_path)
-        if ok:
+        result = convert_episode(ep, lerobot_dir, script_path)
+        if result == "ok":
             success += 1
+        elif result == "filtered":
+            filtered += 1
         else:
             failed += 1
 
     print()
-    print(f"Fertig: {success} erfolgreich, {failed} fehlgeschlagen")
+    print(f"Fertig: {success} konvertiert, {filtered} gefiltert (metric), {failed} fehlgeschlagen")
     if failed:
         sys.exit(1)
 

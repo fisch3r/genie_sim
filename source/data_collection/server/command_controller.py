@@ -779,11 +779,20 @@ class CommandController:
         joint_velocities = articulation.get_joint_velocities()
         joint_names = list(articulation.dof_names)
 
+        obj_positions = {}
+        for prim_path, rigid_body in self.rigid_bodies.items():
+            try:
+                state = rigid_body.get_current_dynamic_state()
+                obj_positions[prim_path] = [float(state.position[0]), float(state.position[1]), float(state.position[2])]
+            except Exception:
+                pass
+
         self._direct_frames.append({
             "timestamp": float(current_time),
             "joint_positions": [float(x) for x in joint_positions],
             "joint_velocities": [float(x) for x in joint_velocities],
             "joint_names": joint_names,
+            "object_positions": obj_positions,
         })
 
         # Camera Frames als JPEG speichern

@@ -204,6 +204,72 @@ def update_stats(output_dir: Path, states: np.ndarray, actions: np.ndarray):
         json.dump(new_stats, f, indent=2)
 
 
+# ── Metric Filter ─────────────────────────────────────────────────────────────
+
+def _mean_z(frames: list, obj_id: str) -> float | None:
+    """Mittlerer Z-Wert eines Objekts über eine Liste von Frames."""
+    zs = []
+    for frame in frames:
+        for prim_path, pos in frame.get("object_positions", {}).items():
+            if obj_id in prim_path:
+                zs.append(pos[2])
+                break
+    return sum(zs) / len(zs) if zs else None
+
+
+def apply_metric_filters(recording_path: Path, frames: list) -> tuple[bool, str]:
+    """Wendet task_metric.filter_rules aus metric_config.json auf die Frames an.
+
+    Gibt (True, "ok") zurück wenn alle Filter bestehen,
+    sonst (False, "<Grund>") für die erste fehlschlagende Regel.
+
+    Aktuell implementiert: is_object_end_higher_than_start
+    Übersprungen:          is_gripper_in_view (erfordert Kamera-Analyse)
+    """
+    metric_path = recording_path / "metric_config.json"
+    if not metric_path.exists():
+        return True, "no metric config"
+    with open(metric_path) as f:
+        metric = json.load(f)
+
+    n = len(frames)
+    if n < 2:
+        return True, "too few frames to filter"
+
+    # Ersten 10% = Start, letzten 10% = Ende
+    n_window = max(1, n // 10)
+    start_frames = frames[:n_window]
+    end_frames = frames[n - n_window:]
+
+    for rule in metric.get("filter_rules", []):
+        rule_name = rule.get("rule_name", "")
+        params = rule.get("params", {})
+
+        if rule_name == "is_object_end_higher_than_start":
+            delta_z = params.get("delta_z", 0.15)
+            tolerance = params.get("tolerance", 0.05)
+            required_lift = delta_z - tolerance
+
+            for obj_id in params.get("objects", []):
+                start_z = _mean_z(start_frames, obj_id)
+                end_z = _mean_z(end_frames, obj_id)
+                if start_z is None or end_z is None:
+                    logger.warning(f"filter '{rule_name}': Keine Positions-Daten für '{obj_id}' — Filter übersprungen")
+                    continue
+                actual_lift = end_z - start_z
+                if actual_lift < required_lift:
+                    return False, (
+                        f"is_object_end_higher_than_start: '{obj_id}' "
+                        f"angehoben um {actual_lift:.3f}m < {required_lift:.3f}m"
+                    )
+
+        # is_gripper_in_view: erfordert Kamera-Analyse — wird übersprungen
+        elif rule_name == "is_gripper_in_view":
+            pass
+
+    return True, "ok"
+
+
 # ── Hauptkonvertierung ────────────────────────────────────────────────────────
 
 def convert(recording_path: str, task_info_path: str, output_dir: str, task_name: str = ""):
@@ -233,6 +299,13 @@ def convert(recording_path: str, task_info_path: str, output_dir: str, task_name
     if n_frames == 0:
         logger.error("Keine Frames — Episode wird übersprungen")
         sys.exit(1)
+
+    # Metric Filter anwenden
+    passed, reason = apply_metric_filters(recording_path, direct_frames)
+    if not passed:
+        logger.warning(f"Episode gefiltert: {reason}")
+        sys.exit(2)
+    logger.info(f"Metric Filter: {reason}")
 
     # Camera-Frames prüfen
     cam_dir = recording_path / "camera_direct"
