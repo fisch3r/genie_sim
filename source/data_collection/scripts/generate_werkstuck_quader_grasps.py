@@ -3,7 +3,7 @@
 Generates grasp poses for benchmark_werkstuck_quader_000.
 
 Object geometry:
-  - Shape: cube, all sides 0.08 m (80 mm)
+  - Shape: cube, all sides 0.06 m (60 mm)
   - Origin: centroid = [0, 0, 0] in object frame  (cube sits on table,
             bottom face at Z = -0.04 m, top face at Z = +0.04 m)
 
@@ -52,7 +52,7 @@ import pickle
 import numpy as np
 
 # ── Object geometry ───────────────────────────────────────────────────────────
-SIDE = 0.08          # 80 mm cube side length
+SIDE = 0.06          # 60 mm cube side length
 GRASP_WIDTH = SIDE + 0.004   # gripper opening: side + 4 mm clearance = 0.084 m
 
 OUTPUT_PATH = os.path.join(

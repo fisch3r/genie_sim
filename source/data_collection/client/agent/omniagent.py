@@ -903,8 +903,27 @@ class DataCollectionAgent(BaseAgent):
         force_save=False,
     ):
         tasks = glob.glob(task_folder + "/*.json")
+        total = len(tasks)
+        episode_durations = []
+        run_start = time.time()
         for index, task_file in enumerate(tasks):
+            ep_start = time.time()
             success = True
+            # ── Progress ──────────────────────────────────────────────────────
+            if episode_durations:
+                avg_dur = sum(episode_durations) / len(episode_durations)
+                remaining = avg_dur * (total - index)
+                h, rem = divmod(int(remaining), 3600)
+                m, s = divmod(rem, 60)
+                eta_str = f"{h:02d}:{m:02d}:{s:02d}"
+                logger.info(
+                    f"── Episode {index + 1}/{total} "
+                    f"| ø {avg_dur:.0f}s/ep "
+                    f"| ETA {eta_str} ──"
+                )
+            else:
+                logger.info(f"── Episode {index + 1}/{total} ──")
+            # ──────────────────────────────────────────────────────────────────
             if not self.check_task_file(task_file):
                 logger.error(f"Task file {task_file} check failed, skip this task")
                 continue
@@ -1090,5 +1109,17 @@ class DataCollectionAgent(BaseAgent):
             self.robot.client.send_task_status(save_status, fail_stage_step)
             if success:
                 logger.info(">>>>>>>>>>>>>>>>>>>>  TASK SUCCESS ! <<<<<<<<<<<<<<<<<<<<")
+
+            ep_dur = time.time() - ep_start
+            episode_durations.append(ep_dur)
+            elapsed = time.time() - run_start
+            h_e, rem_e = divmod(int(elapsed), 3600)
+            m_e, s_e = divmod(rem_e, 60)
+            status_str = "OK" if success else "FAIL"
+            logger.info(
+                f"── Episode {index + 1}/{total} done [{status_str}] "
+                f"| {ep_dur:.0f}s "
+                f"| elapsed {h_e:02d}:{m_e:02d}:{s_e:02d} ──"
+            )
 
         return True

@@ -230,11 +230,11 @@
                 "candidate_objects": [
                     {
                         "data_info_dir": "objects/benchmark/werkstuck/benchmark_werkstuck_quader_000/",
-                        "mass": 0.13,
+                        "mass": 0.06,
                         "object_id": "geniesim_2025_werkstuck_quader_000"
                     }
                 ],
-                "mass": 0.13,
+                "mass": 0.06,
                 "object_id": "geniesim_2025_target_building_block",
                 "sub_workspace": {
                     "x": {
