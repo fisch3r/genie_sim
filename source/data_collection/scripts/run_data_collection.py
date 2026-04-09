@@ -6,7 +6,9 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
+from pathlib import Path
 
 root_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root_directory)
@@ -50,6 +52,12 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help="Override num_of_episode from task JSON",
+    )
+    parser.add_argument(
+        "--post_convert_to_lerobot",
+        action="store_true",
+        default=False,
+        help="Nach Abschluss aller Episoden automatisch LeRobot-Konvertierung starten",
     )
     args = parser.parse_args()
     task_template_file = args.task_template
@@ -108,3 +116,14 @@ if __name__ == "__main__":
     )
     logger.info("job done")
     robot.client.exit()
+
+    if args.post_convert_to_lerobot and args.use_recording:
+        convert_script = Path(__file__).parent.parent / "server" / "recording" / "batch_convert_lerobot.py"
+        logger.info(f"Starte LeRobot-Konvertierung: {convert_script}")
+        result = subprocess.run([sys.executable, str(convert_script)])
+        if result.returncode != 0:
+            logger.error("LeRobot-Konvertierung fehlgeschlagen (siehe Log oben)")
+            sys.exit(result.returncode)
+        logger.info("LeRobot-Konvertierung abgeschlossen")
+    elif args.post_convert_to_lerobot and not args.use_recording:
+        logger.warning("--post_convert_to_lerobot ignoriert: --use_recording nicht gesetzt, keine Daten aufgezeichnet")
