@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -103,8 +104,28 @@ def main():
     success = 0
     filtered = 0
     failed = 0
-    for ep in pending:
+    total = len(pending)
+    durations = []
+    run_start = time.time()
+
+    for i, ep in enumerate(pending):
+        ep_start = time.time()
+
+        if durations:
+            avg_dur = sum(durations) / len(durations)
+            remaining = avg_dur * (total - i)
+            h, rem = divmod(int(remaining), 3600)
+            m, s = divmod(rem, 60)
+            eta_str = f"{h:02d}:{m:02d}:{s:02d}"
+            print(f"  [{i + 1}/{total}] ETA {eta_str} | ø {avg_dur:.1f}s/ep", flush=True)
+        else:
+            print(f"  [{i + 1}/{total}]", flush=True)
+
         result = convert_episode(ep, lerobot_dir, script_path)
+
+        ep_dur = time.time() - ep_start
+        durations.append(ep_dur)
+
         if result == "ok":
             success += 1
         elif result == "filtered":
@@ -112,8 +133,12 @@ def main():
         else:
             failed += 1
 
+    elapsed = time.time() - run_start
+    h_e, rem_e = divmod(int(elapsed), 3600)
+    m_e, s_e = divmod(rem_e, 60)
     print()
     print(f"Fertig: {success} konvertiert, {filtered} gefiltert (metric), {failed} fehlgeschlagen")
+    print(f"Gesamtdauer: {h_e:02d}:{m_e:02d}:{s_e:02d}")
     if failed:
         sys.exit(1)
 
